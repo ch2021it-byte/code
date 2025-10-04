@@ -1,3 +1,1586 @@
+/**
+ * ระบบสแกนขายสินค้า - Google Apps Script Backend
+ */
+
+// กำหนดชื่อ Spreadsheet และ Sheet
+const SPREADSHEET_ID = '10SgCZ2H-4d37-3Slcj-riBK2SDgAbYpXW6SZvgSFUa8'; // ใส่ ID ของ Google Sheets ของคุณ
+const ITEMS_SHEET = 'Items';
+const SALES_SHEET = 'ລາຍການຂາຍສິນຄ້າ';
+const COST_SHEET = 'ສຶກສາລາຄາຕົ້ນທຶນ';
+const QUOTA_SHEET = 'API Quota'; // ชีตใหม่สำหรับนับโควต้า API
+
+const INITIAL_QUOTA = 20000;
+
+/**
+ * เปิดหน้าเว็บ HTML
+ */
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
+/**
+ * รวม CSS และ JS เข้ากับ HTML
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+
+/**
+ * ดึงข้อมูลจากตาราง Items
+ */
+function getItemsData() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(ITEMS_SHEET);
+   
+    if (!sheet) {
+      throw new Error(`Sheet "${ITEMS_SHEET}" not found`);
+    }
+   
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const rows = data.slice(1);
+   
+    return rows.map(row => {
+      const item = {};
+      headers.forEach((header, index) => {
+        item[`column${String.fromCharCode(65 + index)}`] = row[index] || '';
+      });
+      return item;
+    });
+  } catch (error) {
+    console.error('Error getting items data:', error);
+    return [];
+  }
+}
+function getCostData() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(COST_SHEET);
+   
+    if (!sheet) {
+      throw new Error(`ไม่พบตาราง ${COST_SHEET}`);
+    }
+   
+    var data = sheet.getDataRange().getValues();
+    var result = [];
+   
+    // แปลงข้อมูลให้อยู่ในรูปแบบที่ใช้งานได้
+    for (var i = 1; i < data.length; i++) { // เริ่มจากแถว 2 (ข้าม header)
+      if (data[i][0] || data[i][1]) { // ถ้ามีข้อมูลในคอลัมน์ A หรือ B
+        result.push({
+          columnA: data[i][0],
+          columnB: data[i][1],
+          columnN: data[i][13], // คอลัมน์ N = index 13
+          columnP: data[i][15] // คอลัมน์ P = index 15
+        });
+      }
+    }
+   
+    return result;
+  } catch (error) {
+    console.error('Error in getCostData:', error);
+    throw error;
+  }
+}
+
+
+/**
+ * สร้าง ID แบบ Random
+ */
+function generateRandomId(length = 10) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+
+
+/**
+ * สร้างเลขลำดับการสั่งซื้อ
+ */
+function generateOrderNumber() {
+  const now = new Date();
+  const timestamp = now.getTime().toString().slice(-8);
+  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `ORD${timestamp}${random}`;
+}
+
+/**
+ * ดึงสถานะโควต้า API
+ */
+function getApiQuota() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(QUOTA_SHEET);
+    if (!sheet) {
+      throw new Error(`Sheet "${QUOTA_SHEET}" not found`);
+    }
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow === 0) {
+      sheet.appendRow([INITIAL_QUOTA, new Date()]);
+      return { remaining: INITIAL_QUOTA, initial: INITIAL_QUOTA };
+    }
+
+    const data = sheet.getRange(lastRow, 1, 1, 2).getValues()[0];
+    const lastDate = data[1];
+    const today = new Date();
+
+    // รีเซ็ตโควต้าทุกวัน
+    if (today.getDate() !== lastDate.getDate() || today.getMonth() !== lastDate.getMonth() || today.getFullYear() !== lastDate.getFullYear()) {
+      sheet.appendRow([INITIAL_QUOTA, today]);
+      return { remaining: INITIAL_QUOTA, initial: INITIAL_QUOTA };
+    }
+
+    return { remaining: data[0], initial: INITIAL_QUOTA };
+  } catch (error) {
+    console.error('Error getting API quota:', error);
+    throw error;
+  }
+}
+/**
+ * บันทึกข้อมูลการขายลงใน Google Sheets และอัปเดตจำนวนคงเหลือ - ปรับปรุงประสิทธิภาพพร้อมนับ API Quota
+ */
+function saveSalesData(salesItems) {
+  let apiCalls = 0;
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const salesSheet = ss.getSheetByName(SALES_SHEET);
+    const itemsSheet = ss.getSheetByName(ITEMS_SHEET);
+    const costSheet = ss.getSheetByName(COST_SHEET);
+    const quotaSheet = ss.getSheetByName(QUOTA_SHEET);
+    apiCalls += 5; // openById, getSheetByName x4
+
+    if (!salesSheet || !itemsSheet || !costSheet || !quotaSheet) {
+      throw new Error('ไม่พบหนึ่งในตารางที่จำเป็น');
+    }
+
+    // ดึงโควต้าปัจจุบันก่อนทำอะไร
+    let currentQuota = INITIAL_QUOTA;
+    const lastRow = quotaSheet.getLastRow();
+    apiCalls++; // getLastRow
+    
+    if (lastRow > 0) {
+      const quotaData = quotaSheet.getRange(lastRow, 1, 1, 2).getValues()[0];
+      apiCalls++; // getValues
+      
+      const lastDate = quotaData[1];
+      const today = new Date();
+      
+      // รีเซ็ตโควต้าทุกวัน
+      if (today.getDate() !== lastDate.getDate() || 
+          today.getMonth() !== lastDate.getMonth() || 
+          today.getFullYear() !== lastDate.getFullYear()) {
+        quotaSheet.appendRow([INITIAL_QUOTA, today]);
+        apiCalls++; // appendRow
+        currentQuota = INITIAL_QUOTA;
+      } else {
+        currentQuota = quotaData[0];
+      }
+    } else {
+      // ไม่มีข้อมูลเลย สร้างใหม่
+      quotaSheet.appendRow([INITIAL_QUOTA, new Date()]);
+      apiCalls++; // appendRow
+      currentQuota = INITIAL_QUOTA;
+    }
+
+    // ตรวจสอบโควต้าเพียงพอหรือไม่
+    if (currentQuota <= apiCalls) {
+      throw new Error(`API Quota ไม่เพียงพอ! คงเหลือ ${currentQuota} ครั้ง แต่ต้องการ ${apiCalls} ครั้ง`);
+    }
+
+    // ดึงข้อมูลจริงจากตารางเพื่อใช้บันทึก (ดึงแค่ครั้งเดียว)
+    const itemsDataRaw = itemsSheet.getDataRange().getValues();
+    const costDataRaw = costSheet.getDataRange().getValues();
+    apiCalls += 2; // getDataRange x2
+
+    // สร้าง Map เพื่อความรวดเร็วในการค้นหา
+    const itemsMap = new Map();
+    const costMap = new Map();
+
+    // สร้าง itemsMap จากข้อมูล Items
+    itemsDataRaw.slice(1).forEach(row => {
+      if (row[0]) {
+        itemsMap.set(row[0].toString().trim(), {
+          columnA: row[0], columnB: row[1], columnC: row[2], columnH: row[7],
+          columnI: row[8], columnJ: row[9], columnK: row[10], columnF: row[5]
+        });
+      }
+    });
+
+    // สร้าง costMap จากข้อมูล Cost Study
+    costDataRaw.slice(1).forEach(row => {
+      let barcode = row[1] || row[0];
+      if (barcode) {
+        costMap.set(barcode.toString().trim(), {
+          columnA: row[0], columnB: row[1], columnN: row[13], columnP: row[15]
+        });
+      }
+    });
+
+    const currentDate = new Date();
+    const formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    const orderNumber = generateOrderNumber();
+
+    // คำนวณโควต้าคงเหลือหลังจากบันทึก (ประมาณการ)
+    const estimatedApiCalls = apiCalls + salesItems.length + 3; // +3 สำหรับ operations อื่นๆ
+    const newQuota = currentQuota - estimatedApiCalls;
+
+ 
+// เตรียมข้อมูลสำหรับบันทึก
+const dataToSave = salesItems.map(item => {
+    const itemData = itemsMap.get(item.barcode.toString().trim());
+    const costData_item = costMap.get(item.barcode.toString().trim());
+
+    // 🔧 FIX: ปรับปรุงการดึงข้อมูล quantityPerPack และการคำนวณ
+    let quantityPerPack = 1; // ค่าเริ่มต้น
+    
+    // ลองดึงจากข้อมูลที่ส่งมา (จาก frontend)
+    if (item.quantityPerPack && !isNaN(parseFloat(item.quantityPerPack))) {
+        quantityPerPack = parseFloat(item.quantityPerPack);
+    }
+    // ถ้าไม่มี ให้ดึงจาก itemData (จากตาราง Items)
+    else if (itemData && itemData.columnI && !isNaN(parseFloat(itemData.columnI))) {
+        quantityPerPack = parseFloat(itemData.columnI);
+    }
+
+    const totalPerPack = (parseFloat(item.quantity) || 1) * quantityPerPack;
+
+    // 🔧 FIX: ตรวจสอบให้แน่ใจว่าทุกค่าไม่เป็น undefined หรือ null
+    const finalData = [
+        generateRandomId() || `ID_${Date.now()}_${Math.floor(Math.random() * 1000)}`, // columnA: ID Number
+        orderNumber || 'UNKNOWN_ORDER', // columnB: เลกลະຫັດສັ່ງຊື້
+        (item.barcode || '').toString().trim(), // columnC: ID Barcode
+        item.name || (itemData ? (itemData.columnB || 'ບໍ່ມີຊື່') : 'ບໍ່ມີຊື່'), // columnD: ຊື່ລາຍການ
+        parseFloat(item.price) || (itemData ? (parseFloat(itemData.columnC) || 0) : 0), // columnE: ລາຄາສິນຄ້າ
+        totalPerPack || 1, // columnF: ຈໍານວນຕໍ່ໜ່ວຍ
+        item.image || (itemData ? (itemData.columnK || '') : ''), // columnG: ຮູບ
+        formattedDate || new Date().toLocaleString(), // columnH: ວັນທີຂາຍສິນຄ້າ
+        'ສໍາເລັດ', // columnI: ສະຖານະ ⭐ ค่าคงที่ที่สำคัญ!
+        item.unit || (itemData ? (itemData.columnH || 'ຊິ້ນ') : 'ຊິ້ນ'), // columnJ: ຫົວໜ່ວຍ
+        costData_item ? (parseFloat(costData_item.columnP) || 0) : 0, // columnK: ກໍາໄລເຮົາຕໍ່ອັນ
+        costData_item ? (parseFloat(costData_item.columnN) || 0) : 0, // columnL: ລາຄາຕົ້ນທຶນຕໍ່ອັນ
+        itemData ? (itemData.columnJ || '') : '', // columnM: ບາໂຄດກ໋ອງແລະແພັກ
+        parseFloat(item.quantity) || 1, // columnN: ຊ່ອງພິມຈໍານວນ
+        parseFloat(item.totalPrice) || 0, // columnO: ຈໍານວນເງິນ
+        newQuota || 0 // columnP: โควต้าคงเหลือ
+    ];
+
+    // 🔧 FIX: เพิ่มการ log เพื่อ debug
+    console.log(`💾 ກຽມບັນທຶກລາຍການ ${item.name}:`, {
+        barcode: item.barcode,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: item.totalPrice,
+        quantityPerPack: quantityPerPack,
+        totalPerPack: totalPerPack,
+        status: 'ສໍາເລັດ'
+    });
+
+    return finalData;
+});
+// 🔧 FIX: เพิ่มการตรวจสอบข้อมูลก่อนบันทึก
+console.log(`📋 ລວມລາຍການທີ່ກຽມບັນທຶກ: ${dataToSave.length} ລາຍການ`);
+if (dataToSave.length === 0) {
+    throw new Error('ບໍ່ມີຂໍ້ມູນສຳລັບບັນທຶກ');
+}
+
+
+    // อัปเดตจำนวนสินค้าคงเหลือ
+    const itemsDataToUpdate = itemsSheet.getDataRange();
+    const itemsValues = itemsDataToUpdate.getValues();
+    apiCalls++; // getValues
+    
+    salesItems.forEach(soldItem => {
+      for (let i = 1; i < itemsValues.length; i++) {
+        if (itemsValues[i][0].toString().trim() === soldItem.barcode.toString().trim()) {
+          const currentQuantity = parseFloat(itemsValues[i][5]) || 0; // columnF
+          const newQuantity = currentQuantity - (parseFloat(soldItem.quantity) || 0);
+          itemsSheet.getRange(i + 1, 6).setValue(newQuantity);
+          apiCalls++; // setValue per item
+          break;
+        }
+      }
+    });
+
+    // บันทึกข้อมูลการขายลง Sheet
+    if (dataToSave.length > 0) {
+      const lastRowSales = salesSheet.getLastRow();
+      salesSheet.getRange(lastRowSales + 1, 1, dataToSave.length, 16).setValues(dataToSave);
+      apiCalls++; // setValues
+    }
+
+    // อัปเดตโควต้า API ในตาราง Quota
+    const finalQuota = currentQuota - apiCalls;
+    quotaSheet.appendRow([finalQuota, new Date(), `Used ${apiCalls} calls for order ${orderNumber}`]);
+    apiCalls++; // appendRow สุดท้าย
+
+    console.log(`✅ Saved ${dataToSave.length} items. Used ${apiCalls} API calls. Quota remaining: ${finalQuota}`);
+
+    return {
+      success: true,
+      message: `บันทึกข้อมูลสำเร็จ ${dataToSave.length} รายการ`,
+      orderNumber: orderNumber,
+      remainingQuota: finalQuota,
+      apiCallsUsed: apiCalls,
+      initialQuota: INITIAL_QUOTA
+    };
+
+  } catch (error) {
+    console.error('Error saving sales data:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + error.message,
+      apiCallsUsed: apiCalls
+    };
+  }
+}
+
+/**
+ * ตรวจสอบการเชื่อมต่อและข้อมูล
+ */
+function testConnection() {
+  try {
+    const itemsData = getItemsData();
+    const costData = getCostData();
+   
+    return {
+      success: true,
+      itemsCount: itemsData.length,
+      costCount: costData.length,
+      message: 'เชื่อมต่อสำเร็จ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + error.message
+    };
+  }
+}
+
+/**
+ * ดึงสถิติการใช้งาน API แบบละเอียด
+ */
+function getQuotaStats() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const quotaSheet = ss.getSheetByName(QUOTA_SHEET);
+    
+    if (!quotaSheet) {
+      // สร้างชีต QUOTA_SHEET ถ้ายังไม่มี
+      const newSheet = ss.insertSheet(QUOTA_SHEET);
+      newSheet.getRange(1, 1, 1, 3).setValues([['Remaining Quota', 'Date', 'Notes']]);
+      newSheet.appendRow([INITIAL_QUOTA, new Date(), 'Initial quota']);
+      
+      return {
+        remaining: INITIAL_QUOTA,
+        initial: INITIAL_QUOTA,
+        used: 0,
+        percentage: 0
+      };
+    }
+
+    const lastRow = quotaSheet.getLastRow();
+    if (lastRow <= 1) {
+      quotaSheet.appendRow([INITIAL_QUOTA, new Date(), 'Initial quota']);
+      return {
+        remaining: INITIAL_QUOTA,
+        initial: INITIAL_QUOTA,
+        used: 0,
+        percentage: 0
+      };
+    }
+
+    const data = quotaSheet.getRange(lastRow, 1, 1, 3).getValues()[0];
+    const remaining = data[0] || 0;
+    const used = INITIAL_QUOTA - remaining;
+    const percentage = ((used / INITIAL_QUOTA) * 100).toFixed(1);
+
+    return {
+      remaining: remaining,
+      initial: INITIAL_QUOTA,
+      used: used,
+      percentage: parseFloat(percentage)
+    };
+  } catch (error) {
+    console.error('Error getting quota stats:', error);
+    return {
+      remaining: 0,
+      initial: INITIAL_QUOTA,
+      used: INITIAL_QUOTA,
+      percentage: 100,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * รีเซ็ตโควต้า API (เรียกใช้เมื่อต้องการรีเซ็ตแมนนวล)
+ */
+function resetApiQuota() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const quotaSheet = ss.getSheetByName(QUOTA_SHEET);
+    
+    if (!quotaSheet) {
+      throw new Error('Quota sheet not found');
+    }
+
+    quotaSheet.appendRow([INITIAL_QUOTA, new Date(), 'Manual reset']);
+    
+    return {
+      success: true,
+      message: 'API Quota has been reset to ' + INITIAL_QUOTA,
+      newQuota: INITIAL_QUOTA
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Failed to reset quota: ' + error.message
+    };
+  }
+}
+
+// ==============================================
+// 🏷️ DEBT TRACKING SYSTEM - Global Variables
+// ==============================================
+const DEBT_TRACKING_SPREADSHEET_ID = '1zk7v8iClQjGf7WseWld_hwix4upAr7KoGqn-eo01fgk';
+const DEBT_TRACKING_SHEET_NAME = 'ຄົນຕິດໜີ້';
+const DEBT_DRIVE_FOLDER_ID = '1rCQqeWk419rHVrspy8HdMjX7FZajywO6';
+
+// ==============================================
+// 🏷️ PAYMENT TRACKING SYSTEM - Global Variables  
+// ==============================================
+const PAYMENT_TRACKING_SPREADSHEET_ID = '1zk7v8iClQjGf7WseWld_hwix4upAr7KoGqn-eo01fgk';
+const PAYMENT_DEBT_SHEET_NAME = 'ຄົນຕິດໜີ້';
+const PAYMENT_HISTORY_SHEET_NAME = 'ຄົນຈ່າຍໜີ້';
+
+// ตัวแปรสำหรับตาราง "ລາຍຊື່ຄົນຕິດໜີ້"
+const CUSTOMER_LIST_SPREADSHEET_ID = '1zk7v8iClQjGf7WseWld_hwix4upAr7KoGqn-eo01fgk';
+const CUSTOMER_LIST_SHEET_NAME = 'ລາຍຊື່ຄົນຕິດໜີ້';
+
+// ==============================================
+// 🔧 DEBT TRACKING SYSTEM - ระบบติดหนี้
+// ==============================================
+
+/**
+ * ดึงรายชื่อลูกค้าและเบอร์โทรที่มีอยู่แล้ว (สำหรับระบบติดหนี้)
+ */
+function getDebtCustomerList() {
+  try {
+    const ss = SpreadsheetApp.openById(DEBT_TRACKING_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(DEBT_TRACKING_SHEET_NAME);
+    
+    if (!sheet) {
+      return { customers: [], phones: [], customerPhoneMap: {} };
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    const customers = new Set();
+    const phones = new Set();
+    const customerPhoneMap = new Map();
+    
+    for (let i = 1; i < data.length; i++) {
+      const customerName = data[i][15]; // Column P
+      const phoneNumber = data[i][16];  // Column Q
+      
+      if (customerName && customerName.toString().trim()) {
+        customers.add(customerName.toString().trim());
+      }
+      
+      if (phoneNumber && phoneNumber.toString().trim()) {
+        phones.add(phoneNumber.toString().trim());
+        
+        if (customerName && customerName.toString().trim()) {
+          customerPhoneMap.set(customerName.toString().trim(), phoneNumber.toString().trim());
+        }
+      }
+    }
+    
+    return {
+      customers: Array.from(customers),
+      phones: Array.from(phones),
+      customerPhoneMap: Object.fromEntries(customerPhoneMap)
+    };
+    
+  } catch (error) {
+    console.error('Error getting debt customer list:', error);
+    return { customers: [], phones: [], customerPhoneMap: {} };
+  }
+}
+
+/**
+ * อัปโหลดรูปภาพไป Google Drive (สำหรับระบบติดหนี้)
+ */
+function uploadDebtImageToGoogleDrive(base64Data, fileName, mimeType) {
+  try {
+    console.log('🔄 เริ่มอัปโหลดไฟล์สำหรับระบบติดหนี้:', fileName);
+    
+    if (!base64Data || !base64Data.includes(',')) {
+      throw new Error('ข้อมูล base64 ไม่ถูกต้อง');
+    }
+    
+    const base64String = base64Data.split(',')[1];
+    if (!base64String) {
+      throw new Error('ไม่สามารถแยกข้อมูล base64 ได้');
+    }
+    
+    const bytes = Utilities.base64Decode(base64String);
+    const blob = Utilities.newBlob(bytes, mimeType, fileName);
+    
+    let folder = null;
+    let file = null;
+    
+    try {
+      folder = DriveApp.getFolderById(DEBT_DRIVE_FOLDER_ID);
+      file = folder.createFile(blob);
+    } catch (accessError) {
+      console.warn('⚠️ ไม่สามารถเข้าถึงโฟลเดอร์เป้าหมายได้:', accessError.message);
+      file = DriveApp.createFile(blob);
+      
+      try {
+        folder = DriveApp.getFolderById(DEBT_DRIVE_FOLDER_ID);
+        folder.addFile(file);
+        DriveApp.getRootFolder().removeFile(file);
+      } catch (moveError) {
+        console.warn('⚠️ ไม่สามารถย้ายไฟล์ได้:', moveError.message);
+      }
+    }
+    
+    if (!file) {
+      throw new Error('ไม่สามารถสร้างไฟล์ได้');
+    }
+    
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareError) {
+      console.warn('⚠️ ไม่สามารถตั้งค่าสิทธิ์การเข้าถึงได้:', shareError.message);
+    }
+    
+    const fileId = file.getId();
+    const result = {
+      success: true,
+      fileId: fileId,
+      fileName: fileName,
+      fileUrl: file.getUrl(),
+      viewUrl: `https://drive.google.com/file/d/${fileId}/view`,
+      directUrl: `https://drive.google.com/uc?export=view&id=${fileId}`,
+      downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+      thumbnailUrl: `https://drive.google.com/thumbnail?id=${fileId}&sz=w400-h300`,
+      folderLocation: folder ? `โฟลเดอร์: ${folder.getName()}` : 'Root Folder'
+    };
+    
+    return result;
+    
+  } catch (error) {
+    console.error('💥 เกิดข้อผิดพลาดในการอัปโหลดรูปสำหรับระบบติดหนี้:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการอัปโหลดไฟล์: ' + error.message,
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * บันทึกข้อมูลติดหนี้ (ระบบหลัก)
+ */
+function saveDebtTrackingData(debtItems, customerInfo, extraAmount, imageUrl) {
+  try {
+    const ss = SpreadsheetApp.openById(DEBT_TRACKING_SPREADSHEET_ID);
+    let sheet = ss.getSheetByName(DEBT_TRACKING_SHEET_NAME);
+    
+    console.log('🔄 กำลังบันทึกข้อมูลติดหนี้...');
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(DEBT_TRACKING_SHEET_NAME);
+      const headers = [
+        'ID Number', 'ລະຫັດບາໂຄດ', 'ຊື່ສິນຄ້າ', 'ຫົວໜ່ວຍ', 'ຈໍານວນຕໍ່ຫົວໜ່ວຍ',
+        'ຈໍານວນ', 'ລາຄາໜ້າຮ້ານ', 'ລາຄາລູກຄ້າຊື້ໄປຂາຍ', 'ຮູບສິນຄ້າ', 'ລວມລາຄາໜ້າຮ້ານ',
+        'ລວມລາຄາລູກຄ້າຊື້ໄປຂາຍ', 'ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ', 'ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ', 'ລະຫັດບິນ',
+        'ວັນທີຕິດ', 'ຊື່ລູກຄ້າຕິດ', 'ເບີໂທ', 'ຈໍານວນວັນຕິດໜີ້', 'ວັນທີຈ່າຍເງິນຊໍາລະໜີ້',
+        'ຈໍານວນເງິນຊໍາລະໜີ້', 'ສະຖານະຕິດໜີ້', 'ຈໍານວນເງິນນອກສະແກນ', 'ຮູບເອກະສານ'
+      ];
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+    
+    const currentDate = new Date();
+    const formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    
+    const totalShopPrice = debtItems.reduce((sum, item) => sum + (item.totalShopPrice || 0), 0);
+    const totalCustomerPrice = debtItems.reduce((sum, item) => sum + (item.totalCustomerPrice || 0), 0);
+    const extraAmountNum = parseFloat(extraAmount) || 0;
+    const finalShopTotal = totalShopPrice + extraAmountNum;
+    const finalCustomerTotal = totalCustomerPrice + extraAmountNum;
+    
+    const debtOrderNumber = generateOrderNumber() + '_DEBT';
+    
+    const dataToSave = debtItems.map((item, index) => {
+      const lastRow = sheet.getLastRow();
+      const targetRow = lastRow + index + 1;
+      const uniqueId = `DEBT_${Date.now()}_${index + 1}`;
+      
+      return [
+        uniqueId,                         // A: ID Number
+        item.barcode || '',               // B: ລະຫັດບາໂຄດ
+        item.itemName || '',              // C: ຊື່ສິນຄ້າ
+        item.unit || '',                  // D: ຫົວໜ່ວຍ
+        item.quantityPerUnit || 1,        // E: ຈໍານວນຕໍ່ຫົວໜ່ວຍ
+        item.quantity || 0,               // F: ຈໍານວນ
+        item.shopPrice || 0,              // G: ລາຄາໜ້າຮ້ານ
+        item.customerPrice || 0,          // H: ລາຄາລູກຄ້າຊື້ໄປຂາຍ
+        item.image || '',                 // I: ຮູບສິນຄ້າ
+        item.totalShopPrice || 0,         // J: ລວມລາຄາໜ້າຮ້ານ
+        item.totalCustomerPrice || 0,     // K: ລວມລາຄາລູກຄ້າຊື້ໄປຂາຍ
+        finalShopTotal,                   // L: ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ
+        finalCustomerTotal,               // M: ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ
+        debtOrderNumber,                  // N: ລະຫັດບິນ
+        formattedDate,                    // O: ວັນທີຕິດ
+        customerInfo.customerName || '',  // P: ຊື່ລູກຄ້າຕິດ
+        customerInfo.phoneNumber || '',   // Q: ເບີໂທ
+        `=TODAY()-O${targetRow}`,         // R: ຈໍານວນວັນຕິດໜີ້
+        '',                               // S: ວັນທີຈ່າຍເງິນຊໍາລະໜີ້
+        '',                               // T: ຈໍານວນເງິນຊໍາລະໜີ້
+        'ຕິດໜີ້',                         // U: ສະຖານະຕິດໜີ້
+        extraAmountNum,                   // V: ຈໍານວນເງິນນອກສະແກນ
+        imageUrl || ''                    // W: ຮູບເອກະສານ
+      ];
+    });
+    
+    if (dataToSave.length > 0) {
+      const lastRow = sheet.getLastRow();
+      const targetRange = sheet.getRange(lastRow + 1, 1, dataToSave.length, 23);
+      targetRange.setValues(dataToSave);
+      
+      if (imageUrl) {
+        const imageCell = sheet.getRange(lastRow + 1, 23);
+        const actualValue = imageCell.getValue();
+        if (!actualValue || actualValue !== imageUrl) {
+          imageCell.setValue(imageUrl);
+          SpreadsheetApp.flush();
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      message: `บันทึกข้อมูลติดหนี้สำเร็จ ${dataToSave.length} รายการ`,
+      orderNumber: debtOrderNumber,
+      totalShopPrice: finalShopTotal,
+      totalCustomerPrice: finalCustomerTotal,
+      imageUrl: imageUrl,
+      savedToSheet: DEBT_TRACKING_SHEET_NAME,
+      rowsAffected: dataToSave.length
+    };
+    
+  } catch (error) {
+    console.error('💥 เกิดข้อผิดพลาดในการบันทึกข้อมูลติดหนี้:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูลติดหนี้: ' + error.message,
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * ทดสอบการเข้าถึงโฟลเดอร์สำหรับระบบติดหนี้
+ */
+function testDebtDriveAccess() {
+  try {
+    const folder = DriveApp.getFolderById(DEBT_DRIVE_FOLDER_ID);
+    return {
+      success: true,
+      folderName: folder.getName(),
+      folderId: folder.getId(),
+      message: 'เข้าถึงโฟลเดอร์ได้สำเร็จ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ไม่สามารถเข้าถึงโฟลเดอร์ได้: ' + error.message
+    };
+  }
+}
+
+
+
+
+// ==============================================
+// 🔧 PAYMENT TRACKING SYSTEM - ระบบจ่ายเงินติดหนี้
+// ==============================================
+
+/**
+ * ดึงรายชื่อลูกหนี้ทั้งหมด (สำหรับระบบจ่ายเงิน)
+ */
+// แก้ไขฟังก์ชัน getPaymentDebtorsList ที่มีอยู่แล้ว
+function getPaymentDebtorsList() {
+  try {
+    const ss = SpreadsheetApp.openById(PAYMENT_TRACKING_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(PAYMENT_DEBT_SHEET_NAME);
+    
+    if (!sheet) {
+      throw new Error(`ไม่พบตาราง ${PAYMENT_DEBT_SHEET_NAME}`);
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    const result = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      if (row[15] || row[13]) { // คอลัมน์ P (ชื่อลูกค้า) หรือ N (เลขบิล)
+        const debtRecord = {
+          // ข้อมูลสินค้า - เพิ่มฟิลด์เหล่านี้
+          idNumber: row[0] || '',
+          barcode: row[1] || '',
+          itemName: row[2] || 'รายการสินค้า',
+          unit: row[3] || 'ชิ้น',
+          quantityPerUnit: parseFloat(row[4]) || 1,
+          quantity: parseFloat(row[5]) || 1,
+          shopPrice: parseFloat(row[6]) || 0,
+          customerPrice: parseFloat(row[7]) || 0,
+          image: row[8] || '',
+          totalShopPrice: parseFloat(row[9]) || 0,
+          totalCustomerPrice: parseFloat(row[10]) || 0,
+          
+          // ข้อมูลเดิมที่มีอยู่แล้ว
+          shopAmount: parseFloat(row[11]) || 0,        // L: ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ
+          payAmount: parseFloat(row[12]) || 0,         // M: ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ
+          billNumber: row[13] || '',                   // N: ລະຫັດບິນ
+          customerName: row[15] || '',                 // P: ຊື່ລູກຄ້າຕິດ
+          phoneNumber: row[16] || '',                  // Q: ເບີໂທ
+          debtDays: parseInt(row[17]) || 0,            // R: ຈໍານວນວັນຕິດໜີ້
+          status: row[20] || '',                       // U: ສະຖານະຕິດໜີ້
+          rowIndex: i + 1
+        };
+        
+        result.push(debtRecord);
+      }
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('Error in getPaymentDebtorsList:', error);
+    throw error;
+  }
+}
+
+/**
+ * บันทึกข้อมูลการจ่าย (สำหรับระบบจ่ายเงิน)
+ */
+function savePaymentTrackingData(paymentData) {
+  try {
+    const ss = SpreadsheetApp.openById(PAYMENT_TRACKING_SPREADSHEET_ID);
+    const debtSheet = ss.getSheetByName(PAYMENT_DEBT_SHEET_NAME);
+    let paymentSheet = ss.getSheetByName(PAYMENT_HISTORY_SHEET_NAME);
+    
+    if (!debtSheet) {
+      throw new Error(`ไม่พบตาราง ${PAYMENT_DEBT_SHEET_NAME}`);
+    }
+    
+    if (!paymentSheet) {
+      paymentSheet = ss.insertSheet(PAYMENT_HISTORY_SHEET_NAME);
+      
+      const headers = [
+        'ID Number', 'ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ', 'ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ', 'ລະຫັດບິນ', 'ວັນທີຈ່າຍເງິນຊໍາລະໜີ້',
+        'ຊື່ລູກຄ້າຕິດ', 'ເບີໂທ', 'ຈໍານວນວັນຕິດໜີ້', 'ຈໍານວນເງິນຊໍາລະໜີ້', 'ສະຖານະ'
+      ];
+      
+      paymentSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+    
+    const paymentId = generateRandomId(12);
+    
+    const paymentRowData = [
+      paymentId,
+      paymentData.shopTotalAmount,
+      paymentData.customerTotalAmount,
+      paymentData.billNumber,
+      paymentData.paymentDate,
+      paymentData.customerName,
+      paymentData.phoneNumber,
+      paymentData.debtDays,
+      paymentData.paymentAmount,
+      paymentData.status
+    ];
+    
+    const lastRow = paymentSheet.getLastRow();
+    paymentSheet.getRange(lastRow + 1, 1, 1, paymentRowData.length).setValues([paymentRowData]);
+    
+    // อัปเดตสถานะทุกรายการในบิลนี้
+    const debtData = debtSheet.getDataRange().getValues();
+    let updatedCount = 0;
+    
+    for (let i = 1; i < debtData.length; i++) {
+      const row = debtData[i];
+      const billNumber = row[13]; // คอลัมน์ N
+      
+      if (billNumber && billNumber.toString().trim() === paymentData.billNumber.toString().trim()) {
+        debtSheet.getRange(i + 1, 21).setValue('ຈ່າຍແລ້ວ');     // U: ສະຖານະ
+        debtSheet.getRange(i + 1, 19).setValue(paymentData.paymentDate); // S: ວັນທີຈ່າຍ
+        debtSheet.getRange(i + 1, 20).setValue(paymentData.paymentAmount); // T: ຈໍານວນເງິນ
+        updatedCount++;
+      }
+    }
+    
+    return {
+      success: true,
+      message: `บันทึกการจ่ายเงินสำเร็จ - อัพเดต ${updatedCount} รายการ`,
+      paymentId: paymentId,
+      billNumber: paymentData.billNumber,
+      paymentAmount: paymentData.paymentAmount,
+      customerName: paymentData.customerName,
+      updatedItemsCount: updatedCount
+    };
+    
+  } catch (error) {
+    console.error('Error in savePaymentTrackingData:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูลการจ่าย: ' + error.message,
+      error: error.toString()
+    };
+  }
+}
+
+/**
+ * ดึงประวัติการจ่ายเงิน (สำหรับระบบจ่ายเงิน)
+ */
+function getPaymentTrackingHistory(customerName = null, billNumber = null) {
+  try {
+    const ss = SpreadsheetApp.openById(PAYMENT_TRACKING_SPREADSHEET_ID);
+    const paymentSheet = ss.getSheetByName(PAYMENT_HISTORY_SHEET_NAME);
+    
+    if (!paymentSheet) {
+      return [];
+    }
+    
+    const data = paymentSheet.getDataRange().getValues();
+    const result = [];
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      const paymentRecord = {
+        id: row[0],
+        shopTotalAmount: row[1],
+        customerTotalAmount: row[2],
+        billNumber: row[3],
+        paymentDate: row[4],
+        customerName: row[5],
+        phoneNumber: row[6],
+        debtDays: row[7],
+        paymentAmount: row[8],
+        status: row[9]
+      };
+      
+      let includeRecord = true;
+      
+      if (customerName && paymentRecord.customerName !== customerName) {
+        includeRecord = false;
+      }
+      
+      if (billNumber && paymentRecord.billNumber !== billNumber) {
+        includeRecord = false;
+      }
+      
+      if (includeRecord) {
+        result.push(paymentRecord);
+      }
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('Error in getPaymentTrackingHistory:', error);
+    return [];
+  }
+}
+
+/**
+ * ดึงสถิติการจ่ายเงิน (สำหรับระบบจ่ายเงิน)
+ */
+function getPaymentTrackingStats() {
+  try {
+    const debtorsList = getPaymentDebtorsList();
+    const paymentHistory = getPaymentTrackingHistory();
+    
+    const stats = {
+      totalDebtors: debtorsList.length,
+      unpaidDebtors: debtorsList.filter(d => d.status === 'ຕິດໜີ້').length,
+      paidDebtors: debtorsList.filter(d => d.status === 'ຈ່າຍແລ້ວ').length,
+      totalUnpaidAmount: debtorsList
+        .filter(d => d.status === 'ຕິດໜີ້')
+        .reduce((sum, d) => sum + d.payAmount, 0),
+      totalPaidAmount: paymentHistory
+        .reduce((sum, p) => sum + (parseFloat(p.paymentAmount) || 0), 0),
+      totalPayments: paymentHistory.length
+    };
+    
+    return stats;
+    
+  } catch (error) {
+    console.error('Error in getPaymentTrackingStats:', error);
+    return {
+      totalDebtors: 0,
+      unpaidDebtors: 0,
+      paidDebtors: 0,
+      totalUnpaidAmount: 0,
+      totalPaidAmount: 0,
+      totalPayments: 0
+    };
+  }
+}
+
+/**
+ * ทดสอบการเชื่อมต่อระบบจ่ายเงิน
+ */
+function testPaymentTrackingConnection() {
+  try {
+    const debtorsList = getPaymentDebtorsList();
+    const paymentStats = getPaymentTrackingStats();
+    
+    return {
+      success: true,
+      debtorsCount: debtorsList.length,
+      unpaidCount: paymentStats.unpaidDebtors,
+      paidCount: paymentStats.paidDebtors,
+      totalUnpaidAmount: paymentStats.totalUnpaidAmount,
+      message: 'เชื่อมต่อระบบจ่ายเงินติดหนี้สำเร็จ'
+    };
+    
+  } catch (error) {
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการเชื่อมต่อระบบจ่ายเงินติดหนี้: ' + error.message
+    };
+  }
+}
+
+
+
+/**
+ * ดึงรายชื่อลูกค้าและเบอร์โทรจากตาราง "ລາຍຊື່ຄົນຕິດໜີ້"
+ */
+function getCustomerListData() {
+  try {
+    console.log('🔍 กำลังดึงข้อมูลลูกค้าจากตาราง:', CUSTOMER_LIST_SHEET_NAME);
+    
+    const ss = SpreadsheetApp.openById(CUSTOMER_LIST_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(CUSTOMER_LIST_SHEET_NAME);
+    
+    if (!sheet) {
+      throw new Error(`ไม่พบตาราง "${CUSTOMER_LIST_SHEET_NAME}"`);
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    const customers = [];
+    const customerPhoneMap = {};
+    
+    // เริ่มจากแถวที่ 2 (ข้าม header)
+    for (let i = 1; i < data.length; i++) {
+      const customerName = data[i][1]; // คอลัมน์ B
+      const phoneNumber = data[i][2];  // คอลัมน์ C
+      
+      // ตรวจสอบว่ามีข้อมูลในคอลัมน์ B
+      if (customerName && customerName.toString().trim()) {
+        const cleanName = customerName.toString().trim();
+        
+        // เพิ่มชื่อลูกค้าในรายการ (ไม่ซ้ำ)
+        if (!customers.includes(cleanName)) {
+          customers.push(cleanName);
+        }
+        
+        // เก็บความสัมพันธ์ระหว่างชื่อและเบอร์โทร
+        if (phoneNumber && phoneNumber.toString().trim()) {
+          customerPhoneMap[cleanName] = phoneNumber.toString().trim();
+        }
+      }
+    }
+    
+    console.log(`✅ ดึงข้อมูลลูกค้าสำเร็จ: ${customers.length} รายการ`);
+    
+    return {
+      success: true,
+      customers: customers.sort(), // เรียงตามตัวอักษร
+      customerPhoneMap: customerPhoneMap,
+      totalRecords: customers.length
+    };
+    
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการดึงข้อมูลลูกค้า:', error);
+    return {
+      success: false,
+      customers: [],
+      customerPhoneMap: {},
+      totalRecords: 0,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * ทดสอบการเชื่อมต่อตาราง "ລາຍຊື່ຄົນຕິດໜີ້"
+ */
+function testCustomerListConnection() {
+  try {
+    const result = getCustomerListData();
+    
+    if (result.success) {
+      return {
+        success: true,
+        message: `เชื่อมต่อสำเร็จ - พบลูกค้า ${result.totalRecords} รายการ`,
+        sampleData: result.customers.slice(0, 5), // แสดงตัวอย่าง 5 รายการแรก
+        totalRecords: result.totalRecords
+      };
+    } else {
+      return {
+        success: false,
+        message: 'ไม่สามารถเชื่อมต่อได้: ' + result.error
+      };
+    }
+    
+  } catch (error) {
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการทดสอบ: ' + error.message
+    };
+  }
+}
+/**
+ * บันทึกข้อมูลติดหนี้ (ฟังก์ชันใหม่ที่รองรับโครงสร้างข้อมูลใหม่)
+ */
+function saveDebtDataUpdated(debtItems, customerInfo, extraAmount, imageUrl) {
+  try {
+    console.log('🔄 เริ่มบันทึกข้อมูลติดหนี้...');
+    console.log('📊 ข้อมูลที่ได้รับ:', {
+      itemCount: debtItems.length,
+      customerInfo: customerInfo,
+      extraAmount: extraAmount,
+      hasImage: !!imageUrl
+    });
+    
+    const result = saveDebtTrackingData(debtItems, customerInfo, extraAmount, imageUrl);
+    console.log('✅ ผลการบันทึก:', result);
+    
+    return result;
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดใน saveDebtDataUpdated:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาด: ' + error.message
+    };
+  }
+}
+
+/**
+ * ดึงรายชื่อลูกหนี้ทั้งหมด
+ */
+function getDebtorsList() {
+  try {
+    return getPaymentDebtorsList();
+  } catch (error) {
+    console.error('Error in getDebtorsList:', error);
+    return [];
+  }
+}
+
+/**
+ * บันทึกข้อมูลการจ่ายพร้อมอัพเดตสถานะทั้งบิล
+ */
+function savePaymentDataWithBillUpdate(paymentData) {
+  try {
+    console.log('🔄 บันทึกการจ่ายเงินพร้อมอัพเดตบิล:', paymentData);
+    
+    const result = savePaymentTrackingData(paymentData);
+    console.log('✅ ผลการบันทึกการจ่าย:', result);
+    
+    return result;
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดใน savePaymentDataWithBillUpdate:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาด: ' + error.message
+    };
+  }
+}
+
+/**
+ * อัปโหลดรูปภาพไป Google Drive (สำหรับระบบติดหนี้)
+ */
+function uploadImageToGoogleDrive(base64Data, fileName, mimeType) {
+  try {
+    return uploadDebtImageToGoogleDrive(base64Data, fileName, mimeType);
+  } catch (error) {
+    console.error('Error in uploadImageToGoogleDrive:', error);
+    return {
+      success: false,
+      message: 'ไม่สามารถอัปโหลดรูปได้: ' + error.message
+    };
+  }
+}
+
+/**
+ * ดึงรายชื่อลูกค้า (สำหรับ autocomplete)
+ */
+function getCustomerList() {
+  try {
+    return getCustomerListData();
+  } catch (error) {
+    console.error('Error in getCustomerList:', error);
+    return {
+      success: false,
+      customers: [],
+      customerPhoneMap: {}
+    };
+  }
+}
+
+/**
+ * ทดสอบและสร้างโฟลเดอร์สำรองใน Google Drive
+ */
+function testAndCreateBackupFolder() {
+  try {
+    const messages = [];
+    let backupFolderId = null;
+    
+    // ทดสอบการเข้าถึงโฟลเดอร์หลัก
+    try {
+      const mainFolder = DriveApp.getFolderById(DEBT_DRIVE_FOLDER_ID);
+      messages.push(`✅ เข้าถึงโฟลเดอร์หลักได้: ${mainFolder.getName()}`);
+    } catch (error) {
+      messages.push(`❌ ไม่สามารถเข้าถึงโฟลเดอร์หลักได้: ${error.message}`);
+      
+      // สร้างโฟลเดอร์สำรองใน Root
+      try {
+        const backupFolder = DriveApp.createFolder('Debt_Images_Backup_' + Date.now());
+        backupFolderId = backupFolder.getId();
+        messages.push(`🆕 สร้างโฟลเดอร์สำรองใน Root: ${backupFolder.getName()}`);
+      } catch (createError) {
+        messages.push(`❌ ไม่สามารถสร้างโฟลเดอร์สำรองได้: ${createError.message}`);
+      }
+    }
+    
+    return {
+      success: true,
+      message: messages,
+      backupFolderId: backupFolderId
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: ['❌ เกิดข้อผิดพลาด: ' + error.message]
+    };
+  }
+}
+/**
+ * บันทึกยอดคงเหลือลงตาราง "ຄົນຕິດໜີ້" เมื่อจ่ายเงินไม่ครบ
+ */
+function saveRemainingDebtData(remainingDebtData) {
+  try {
+    console.log('🔄 เริ่มบันทึกยอดคงเหลือ:', remainingDebtData);
+    
+    const ss = SpreadsheetApp.openById(DEBT_TRACKING_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(DEBT_TRACKING_SHEET_NAME);
+    
+    if (!sheet) {
+      throw new Error(`ไม่พบตาราง "${DEBT_TRACKING_SHEET_NAME}"`);
+    }
+    
+    const currentDate = new Date();
+    const formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    const uniqueId = generateRandomId(12);
+    
+    // เตรียมข้อมูลสำหรับแถวใหม่
+    const newRowData = [
+      uniqueId,                                    // A: ID Number
+      '',                                          // B: ລະຫັດບາໂຄດ (เว้นว่าง)
+      'ຈ່າຍເງິນບໍ່ໝົດ',                          // C: ຊື່ສິນຄ້າ
+      '',                                          // D: ຫົວໜ່ວຍ (เว้นว่าง)
+      '',                                          // E: ຈໍານວນຕໍ່ຫົວໜ່ວຍ (เว້นว่าง)
+      '',                                          // F: ຈໍານວນ (เว้นว่าง)
+      '',                                          // G: ລາຄາໜ້າຮ້ານ (เว้นว่าง)
+      '',                                          // H: ລາຄາລູກຄ້າຊື້ໄປຂາຍ (เว้นว่าง)
+      '',                                          // I: ຮູບສິນຄ້າ (เว้นว่าง)
+      '',                                          // J: ລວມລາຄາໜ້າຮ້ານ (เว้นว่าง)
+      '',                                          // K: ລວມລາຄາລູກຄ້າຊື້ໄປຂາຍ (เว้นว่าง)
+      remainingDebtData.remainingAmount,           // L: ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ
+      remainingDebtData.remainingAmount,           // M: ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ
+      remainingDebtData.originalBillNumber,        // N: ລະຫັດບິນ
+      formattedDate,                               // O: ວັນທີຕິດ
+      remainingDebtData.customerName,              // P: ຊື່ລູກຄ້າຕິດ
+      remainingDebtData.phoneNumber,               // Q: ເບີໂທ
+      `=TODAY()-O${sheet.getLastRow() + 1}`,       // R: ຈໍານວນວັນຕິດໜີ້
+      '',                                          // S: ວັນທີຈ່າຍເງິນຊໍາລະໜີ້ (เว้นว่าง)
+      '',                                          // T: ຈໍານວນເງິນຊໍາລະໜີ້ (เว้นว่าง)
+      'ຕິດໜີ້',                                   // U: ສະຖານະຕິດໜີ້
+      0,                                           // V: ຈໍານວນເງິນນອກສະແກນ
+      ''                                           // W: ຮູບເອກະສານ (เว้นว่าง)
+    ];
+    
+    // บันทึกลงตาราง
+    const lastRow = sheet.getLastRow();
+    const targetRange = sheet.getRange(lastRow + 1, 1, 1, newRowData.length);
+    targetRange.setValues([newRowData]);
+    
+    console.log(`✅ บันทึกยอดคงเหลือสำเร็จ - แถว ${lastRow + 1}`);
+    
+    return {
+      success: true,
+      message: `บันทึกยอดคงเหลือ ${remainingDebtData.remainingAmount} ₭ สำเร็จ`,
+      remainingAmount: remainingDebtData.remainingAmount,
+      billNumber: remainingDebtData.originalBillNumber,
+      customerName: remainingDebtData.customerName,
+      rowNumber: lastRow + 1
+    };
+    
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการบันทึกยอดคงเหลือ:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการบันทึกยอดคงเหลือ: ' + error.message,
+      error: error.toString()
+    };
+  }
+}
+
+
+/**
+ * บันทึกข้อมูลการแก้ไขคนติดหนี้
+ */
+/**
+ * บันทึกข้อมูลการแก้ไขคนติดหนี้ - แก้ไขแล้ว
+ */
+function saveEditedDebtorData(editData) {
+  try {
+    console.log('🔄 เริ่มบันทึกการแก้ไขคนติดหนี้:', editData);
+    console.log('📊 ยอดรวมที่จะใส่ในคอลัมน์ L และ M:', editData.finalGrandTotal);
+    
+    const ss = SpreadsheetApp.openById(DEBT_TRACKING_SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(DEBT_TRACKING_SHEET_NAME);
+    
+    if (!sheet) {
+      throw new Error(`ไม่พบตาราง "${DEBT_TRACKING_SHEET_NAME}"`);
+    }
+    
+    const currentDate = new Date();
+    const formattedDate = Utilities.formatDate(currentDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
+    
+    // ใช้ยอดรวมที่คำนวณจาก frontend (ยอดรวมเดิม + ยอดสินค้าใหม่)
+    const finalTotalAmount = editData.finalGrandTotal; // 9
+    
+    // เพิ่มรายการสินค้าใหม่ลงในตาราง
+    const newRows = editData.newItems.map(item => {
+      const uniqueId = generateRandomId(12);
+      const lastRow = sheet.getLastRow();
+      
+      return [
+        uniqueId,                                    // A: ID Number
+        item.barcode,                                // B: ລະຫັດບາໂຄດ
+        item.itemName,                               // C: ຊື່ສິນຄ້າ
+        item.unit,                                   // D: ຫົວໜ່ວຍ
+        1,                                           // E: ຈໍານວນຕໍ່ຫົວໜ່ວຍ
+        item.quantity,                               // F: ຈໍານວນ
+        item.shopPrice,                              // G: ລາຄາໜ້າຮ້ານ
+        item.customerPrice,                          // H: ລາຄາລູກຄ້າຊື້ໄປຂາຍ
+        item.image,                                  // I: ຮູບສິນຄ້າ
+        item.totalShopPrice,                         // J: ລວມລາຄາໜ້າຮ້ານ
+        item.totalCustomerPrice,                     // K: ລວມລາຄາລູກຄ້າຊື້ໄປຂາຍ
+        finalTotalAmount,                            // L: ຍອດລວມຕິດໜີ້ໜ້າຮ້ານ = 9
+        finalTotalAmount,                            // M: ຍອດລວມຕິດໜີ້ລູກຄ້າຊື້ໄປຂາຍ = 9
+        editData.originalBillNumber,                 // N: ລະຫັດບິນ
+        formattedDate,                               // O: ວັນທີຕິດ
+        editData.customerName,                       // P: ຊື່ລູກຄ້າຕິດ
+        editData.phoneNumber,                        // Q: ເບີໂທ
+        `=TODAY()-O${lastRow + 1}`,                  // R: ຈໍານວນວັນຕິດໜີ້
+        '',                                          // S: ວັນທີຈ່າຍເງິນຊໍາລະໜີ້
+        '',                                          // T: ຈໍານວນເງິນຊໍາລະໜີ້
+        'ຕິດໜີ້',                                   // U: ສະຖານະຕິດໜີ້
+        0,                                           // V: ຈໍານວນເງິນນອກສະແກນ
+        ''                                           // W: ຮູບເອກະສານ
+      ];
+    });
+    
+    // บันทึกรายการใหม่
+    if (newRows.length > 0) {
+      const lastRow = sheet.getLastRow();
+      const targetRange = sheet.getRange(lastRow + 1, 1, newRows.length, newRows[0].length);
+      targetRange.setValues(newRows);
+      console.log(`✅ เพิ่มรายการใหม่ ${newRows.length} แถว`);
+    }
+    
+    // อัปเดตยอดรวมทั้งหมดในคอลัมน์ L และ M สำหรับทุกแถวที่มี billNumber เดียวกัน
+    const allData = sheet.getDataRange().getValues();
+    let updatedCount = 0;
+    
+    for (let i = 1; i < allData.length; i++) {
+      const row = allData[i];
+      const billNumber = row[13]; // คอลัมน์ N
+      const status = row[20];     // คอลัมน์ U
+      
+      // อัปเดตทุกแถวที่มีเลขบิลเดียวกันและสถานะ "ຕິດໜີ້"
+      if (billNumber === editData.originalBillNumber && status === 'ຕິດໜີ້') {
+        sheet.getRange(i + 1, 12).setValue(finalTotalAmount); // คอลัมน์ L = 9
+        sheet.getRange(i + 1, 13).setValue(finalTotalAmount); // คอลัมน์ M = 9
+        updatedCount++;
+      }
+    }
+    
+    console.log(`✅ อัปเดตยอดรวม ${finalTotalAmount} ในทั้งคอลัมน์ L และ M สำหรับ ${updatedCount} แถวที่มีบิล ${editData.originalBillNumber}`);
+    console.log(`✅ บันทึกการแก้ไขสำเร็จ - เพิ่ม ${newRows.length} รายการใหม่`);
+    
+    return {
+      success: true,
+      message: `แก้ไขข้อมูลสำเร็จ - เพิ่มสินค้าใหม่ ${newRows.length} รายการ และอัปเดตยอดรวมเป็น ${finalTotalAmount}`,
+      originalBillNumber: editData.originalBillNumber,
+      newItemsCount: newRows.length,
+      newTotalAmount: finalTotalAmount,
+      addedAmount: editData.newItemsAmount,
+      updatedRowsCount: updatedCount
+    };
+    
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการบันทึกการแก้ไข:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการบันทึกการแก้ไข: ' + error.message,
+      error: error.toString()
+    };
+  }
+}
+
+
+
+/**
+ * อัปเดตราคาสินค้าในตาราง Items (ฟังก์ชันใหม่)
+ * @param {Array} updatedItems - อาร์เรย์ของสินค้าที่มีการอัปเดตราคา
+ * @returns {Object} - ผลลัพธ์การอัปเดต
+ */
+function updateItemPrices(updatedItems) {
+  try {
+    console.log('🔄 เริ่มอัปเดตราคาสินค้า:', updatedItems.length, 'รายการ');
+    
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const itemsSheet = ss.getSheetByName(ITEMS_SHEET);
+    
+    if (!itemsSheet) {
+      throw new Error(`ไม่พบตาราง "${ITEMS_SHEET}"`);
+    }
+    
+    // ดึงข้อมูลทั้งหมดจากตาราง Items
+    const itemsData = itemsSheet.getDataRange().getValues();
+    let updatedCount = 0;
+    const updateResults = [];
+    
+    // วนลูปผ่านสินค้าที่ต้องอัปเดต
+    updatedItems.forEach(item => {
+      const barcode = item.barcode.toString().trim();
+      const newPrice = parseFloat(item.newPrice) || 0;
+      const oldPrice = parseFloat(item.oldPrice) || 0;
+      
+      // หาแถวที่ตรงกับ barcode ในคอลัมน์ A
+      for (let i = 1; i < itemsData.length; i++) {
+        const cellValue = itemsData[i][0]; // คอลัมน์ A
+        
+        if (cellValue && cellValue.toString().trim() === barcode) {
+          // อัปเดตราคาในคอลัมน์ C (index 2)
+          itemsSheet.getRange(i + 1, 3).setValue(newPrice);
+          
+          updateResults.push({
+            barcode: barcode,
+            itemName: itemsData[i][1] || 'ไม่ทราบชื่อ', // คอลัมน์ B
+            oldPrice: oldPrice,
+            newPrice: newPrice,
+            rowNumber: i + 1
+          });
+          
+          updatedCount++;
+          console.log(`✅ อัปเดตราคา: ${barcode} จาก ${oldPrice} เป็น ${newPrice}`);
+          break;
+        }
+      }
+    });
+    
+    console.log(`🎉 อัปเดตราคาสำเร็จ: ${updatedCount} รายการ`);
+    
+    return {
+      success: true,
+      message: `อัปเดตราคาสำเร็จ ${updatedCount} รายการ`,
+      updatedCount: updatedCount,
+      updateResults: updateResults,
+      timestamp: new Date().toLocaleString()
+    };
+    
+  } catch (error) {
+    console.error('❌ เกิดข้อผิดพลาดในการอัปเดตราคา:', error);
+    return {
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการอัปเดตราคา: ' + error.message,
+      error: error.toString(),
+      updatedCount: 0
+    };
+  }
+}
+
+/**
+ * ทดสอบการเข้าถึงตาราง Items สำหรับอัปเดตราคา
+ */
+function testPriceUpdateAccess() {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const itemsSheet = ss.getSheetByName(ITEMS_SHEET);
+    
+    if (!itemsSheet) {
+      throw new Error(`ไม่พบตาราง "${ITEMS_SHEET}"`);
+    }
+    
+    const lastRow = itemsSheet.getLastRow();
+    const lastColumn = itemsSheet.getLastColumn();
+    
+    return {
+      success: true,
+      message: 'เข้าถึงตาราง Items ได้',
+      sheetName: ITEMS_SHEET,
+      lastRow: lastRow,
+      lastColumn: lastColumn,
+      hasData: lastRow > 1
+    };
+    
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ไม่สามารถเข้าถึงตาราง Items ได้: ' + error.message
+    };
+  }
+}
+
+/**
+ * ดึงข้อมูลผู้ใช้จาก Sheet "userinfo1"
+ */
+function getUserInfoData() {
+  try {
+    const ss = SpreadsheetApp.openById('1NAhTnqB3vN8v6GJPhVgBcF6iaRkiZ3tLzoPdQVFFg8M');
+    const sheet = ss.getSheetByName('userinfo1');
+    
+    if (!sheet) {
+      console.error('❌ ไม่พบ Sheet: userinfo1');
+      return [];
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      console.log('⚠️ Sheet userinfo1 ว่างเปล่า');
+      return [];
+    }
+    
+    const data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    
+    const users = data
+      .filter(row => row[0] && row[1] && row[2]) // กรองแถวที่มีข้อมูลครบ
+      .map(row => ({
+        username: row[0].toString().trim(),
+        password: row[1].toString().trim(),
+        grade: row[2].toString().trim()
+      }));
+    
+    console.log(`✅ ดึงข้อมูลผู้ใช้: ${users.length} รายการ`);
+    return users;
+    
+  } catch (error) {
+    console.error('❌ getUserInfoData error:', error);
+    return [];
+  }
+}
+
+/**
+ * บันทึก Login Session ไปยัง Sheet "Settime1"
+ */
+function saveLoginSession(loginData) {
+  try {
+    const ss = SpreadsheetApp.openById('1NAhTnqB3vN8v6GJPhVgBcF6iaRkiZ3tLzoPdQVFFg8M');
+    let sheet = ss.getSheetByName('Settime1');
+    
+    // สร้าง Sheet ถ้ายังไม่มี
+    if (!sheet) {
+      sheet = ss.insertSheet('Settime1');
+      sheet.getRange(1, 1, 1, 5).setValues([
+        ['ຊື່ຜູ້ເຂົ້າລະບົບ', 'ລະຫັດຜ່ານ', 'logintime', 'logoutime', 'status']
+      ]);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+      console.log('✅ สร้าง Sheet: Settime1');
+    }
+    
+    // แปลงเวลาเป็น Date object
+    const loginTime = new Date(loginData.loginTime);
+    const logoutTime = new Date(loginData.logoutTime);
+    
+    // เพิ่มแถวใหม่
+    const newRow = [
+      loginData.username,
+      loginData.password,
+      loginTime,
+      logoutTime,
+      'active'
+    ];
+    
+    sheet.appendRow(newRow);
+    
+    // Format เวลา
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(lastRow, 3).setNumberFormat('dd/MM/yyyy HH:mm:ss');
+    sheet.getRange(lastRow, 4).setNumberFormat('dd/MM/yyyy HH:mm:ss');
+    
+    console.log(`✅ บันทึก Login Session: ${loginData.username}`);
+    
+    return {
+      success: true,
+      message: 'บันทึก Login Session สำเร็จ',
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    console.error('❌ saveLoginSession error:', error);
+    return {
+      success: false,
+      message: error.toString()
+    };
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 <!DOCTYPE html>
@@ -7,6 +1590,159 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ລະບົບສະແກນຂາຍສິນຄ້າ</title>
     <style>
+
+/* Save Loading Animation */
+.save-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    backdrop-filter: blur(10px);
+}
+
+.save-loading-overlay.show {
+    display: flex;
+}
+
+.save-loading-content {
+    background: white;
+    border-radius: 30px;
+    padding: 50px;
+    text-align: center;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.4);
+    animation: popIn 0.5s ease-out;
+}
+
+@keyframes popIn {
+    from { transform: scale(0.5); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.save-spinner {
+    width: 80px;
+    height: 80px;
+    border: 6px solid #e3f2fd;
+    border-top: 6px solid #43e97b;
+    border-radius: 50%;
+    margin: 0 auto 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.save-loading-title {
+    font-size: 1.8rem;
+    font-weight: bold;
+    color: #43e97b;
+    margin-bottom: 10px;
+}
+
+.save-loading-text {
+    font-size: 1.1rem;
+    color: #666;
+}
+
+
+
+/* Mode Selector for Special Scan */
+.special-mode-selector {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.special-mode-btn {
+    flex: 1;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 3px solid #e1e5e9;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+    font-size: 1rem;
+}
+
+.special-mode-btn:hover {
+    border-color: #667eea;
+    background: #f0f4ff;
+}
+
+.special-mode-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+    font-weight: bold;
+}
+
+.special-name-search {
+    display: none;
+    position: relative;
+}
+
+.special-name-search.active {
+    display: block;
+}
+
+.special-name-input {
+    width: 100%;
+    padding: 15px 20px;
+    font-size: 1.2rem;
+    border: 3px solid #e1e5e9;
+    border-radius: 10px;
+    outline: none;
+}
+
+.special-name-input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.special-name-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 3px solid #667eea;
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    display: none;
+}
+
+.special-name-suggestions.show {
+    display: block;
+}
+
+.special-name-item {
+    padding: 12px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.special-name-item:hover {
+    background: #f8f9ff;
+}
+
+.special-name-highlight {
+    background: #fff3cd;
+    padding: 2px 4px;
+    border-radius: 3px;
+}
+
+
 
 
 /* ==============================================
@@ -59,9 +1795,9 @@
     background: white;
     border-radius: 20px;
     padding: 30px;
-    max-width: 900px;
+    max-width: 1000px;
     width: 100%;
-    max-height: 90vh;
+    max-height: 98vh;
     overflow-y: auto;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
     animation: specialModalAppear 0.4s ease-out;
@@ -2745,13 +4481,19 @@ const priceInputCSS = `
                     
 
 <button id="saveButton" class="save-button" onclick="handleSaveWithWhatsApp(this)" disabled>
-    💾 ບັນທຶກ + WhatsApp
+    💾 ບັນທຶກ
 </button>
 
 
                 </div>
 
-                
+                <div id="saveLoadingOverlay" class="save-loading-overlay">
+    <div class="save-loading-content">
+        <div class="save-spinner"></div>
+        <h2 class="save-loading-title">ກໍາລັງບັນທຶກ...</h2>
+        <p class="save-loading-text">ກະລຸນາລໍຖ້າສັກຄູ່</p>
+    </div>
+</div>
 
                 <div id="statusMessage"></div>
 
@@ -3660,6 +5402,9 @@ function handleSaveClick(button) {
         return false;
     }
 
+    // ⭐ แสดง Loading Animation
+    showSaveLoading();
+
     button.disabled = true;
     button.textContent = '🔄 ກໍາລັງບັນທຶກ...';
     
@@ -3731,12 +5476,21 @@ function handleSaveClick(button) {
                 }, 3500);
             }
             
+            // ⭐ ซ่อน Loading หลังบันทึกสำเร็จ
+            setTimeout(() => {
+                hideSaveLoading();
+            }, 1500);
+            
             // 6. Clear data after successful save
             priceUpdateQueue.splice(0); // Clear price update queue
             clearSavedData();
             
         } catch (error) {
             console.error('❌ Save error:', error);
+            
+            // ⭐ ซ่อน Loading ทันทีเมื่อเกิด Error
+            hideSaveLoading();
+            
             showMessage(`❌ ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ${error.message || error}`, 'error');
             
             // Reset button
@@ -3748,6 +5502,11 @@ function handleSaveClick(button) {
     if (isOnline) {
         performSave();
     } else {
+        // ⭐ ซ่อน Loading ก่อนเรียก saveOfflineData
+        setTimeout(() => {
+            hideSaveLoading();
+        }, 1000);
+        
         saveOfflineData(button);
     }
 }
@@ -3755,25 +5514,6 @@ function handleSaveClick(button) {
 
 
 
-/**
- * ฟังก์ชันเพิ่ม CSS โดยอัตโนมัติ
- */
-function addPriceInputStyles() {
-    const existingStyle = document.getElementById('priceInputStyles');
-    if (existingStyle) return;
-    
-    const style = document.createElement('style');
-    style.id = 'priceInputStyles';
-    style.textContent = priceInputCSS;
-    document.head.appendChild(style);
-    
-    console.log('✅ เพิ่ม CSS สำหรับ price input แล้ว');
-}
-
-// เรียกใช้เมื่อโหลดหน้า
-document.addEventListener('DOMContentLoaded', function() {
-    addPriceInputStyles();
-});
 
 /**
  * เพิ่มการแสดงผลคิวราคาที่รอการอัปเดต
@@ -15481,33 +17221,99 @@ console.log(`
 let specialScanModal = null;
 let specialScanResults = [];
 let currentSpecialBarcode = '';
+let specialSearchMode = 'barcode'; // ⬅️ เพิ่มบรรทัดนี้
 
 /**
  * สร้างปุ่มสแกนสินค้าพิเศษ
  */
 function createSpecialScanButton() {
-    console.log('🔧 เริ่มสร้างปุ่มสแกนสินค้าพิเศษ...');
+    // ตรวจสอบว่าปุ่มมีอยู่แล้วหรือไม่
+    if (document.getElementById('specialScanBtn')) return;
     
-    // หาตำแหน่งปุ่ม Logout
-    const logoutBtn = document.querySelector('.logout-btn');
-    if (!logoutBtn) {
-        console.warn('⚠️ ไม่พบปุ่ม Logout');
+    // ⭐ หาปุ่ม Logout แทน
+    const logoutButton = document.querySelector('.logout-btn');
+    if (!logoutButton) {
+        console.log('❌ ไม่พบปุ่ม Logout');
         return;
     }
-
-    // สร้างปุ่ม
+    
     const specialBtn = document.createElement('button');
+    specialBtn.id = 'specialScanBtn';
     specialBtn.className = 'special-scan-btn';
-    specialBtn.textContent = '🔍 ສະແກນສິນຄ້າພິເສດ';
-    specialBtn.onclick = openSpecialScanModal;
-
-    // แทรกปุ่มข้างปุ่ม Logout
-    logoutBtn.parentNode.insertBefore(specialBtn, logoutBtn.nextSibling);
-
-    console.log('✅ สร้างปุ่มสแกนสินค้าพิเศษสำเร็จ');
-
-    // สร้าง Modal
-    createSpecialScanModal();
+    specialBtn.innerHTML = '🔍 ລະບົບສະແກນພິເສດ';
+   specialBtn.onclick = function() {
+    console.log('🔍 คลิกปุ่มสแกนพิเศษ');
+    openSpecialScanModal();
+};
+    
+    // ⭐ แทรกก่อนปุ่ม Logout
+    logoutButton.parentNode.insertBefore(specialBtn, logoutButton);
+    
+    const modalHTML = `
+        <div id="specialScanModal" class="special-scan-modal">
+            <div class="special-scan-modal-content">
+                <div class="special-scan-modal-header">
+                    <h2 class="special-scan-modal-title">🔍 ສະແກນສິນຄ້າພິເສດ</h2>
+                    <button class="special-close-btn" onclick="closeSpecialScanModal()">✕</button>
+                </div>
+                
+                <!-- Mode Selector -->
+                <div class="special-mode-selector">
+                    <div class="special-mode-btn active" onclick="switchSpecialMode('barcode')">
+                        📷 ສະແກນບາໂຄດ
+                    </div>
+                    <div class="special-mode-btn" onclick="switchSpecialMode('name')">
+                        🔤 ຄົ້ນຫາຊື່ສິນຄ້າ
+                    </div>
+                </div>
+                
+                <!-- Barcode Input -->
+                <div class="special-scan-input-section" id="specialBarcodeSection">
+                    <input 
+                        type="text" 
+                        id="specialScanInput" 
+                        class="special-scan-input" 
+                        placeholder="ສະແກນບາໂຄດ..."
+                        
+                    >
+                </div>
+                
+                <!-- Name Search Input -->
+                <div class="special-name-search" id="specialNameSection">
+                    <input 
+                        type="text" 
+                        id="specialNameInput" 
+                        class="special-name-input" 
+                        placeholder="ພິມຊື່ສິນຄ້າເພື່ອຄົ້ນຫາ..."
+                        oninput="searchSpecialByName(this.value)"
+                    >
+                    <div id="specialNameSuggestions" class="special-name-suggestions"></div>
+                </div>
+                
+                <div id="specialItemsFound" class="special-items-found"></div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    console.log('✅ สร้างปุ่มและ Modal สแกนพิเศษเรียบร้อย');
+    
+    // Event listener สำหรับสแกนบาร์โค้ด
+    const specialScanInput = document.getElementById('specialScanInput');
+    if (specialScanInput) {
+        specialScanInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                const barcode = this.value.trim();
+                if (barcode) {
+                    searchLinkedProducts(barcode);
+                    this.value = '';
+                }
+            }
+        });
+    } else {
+        console.log('❌ ไม่พบ specialScanInput');
+    }
 }
 
 /**
@@ -15561,33 +17367,58 @@ function createSpecialScanModal() {
  * เปิด Modal
  */
 function openSpecialScanModal() {
-    console.log('📱 เปิด Modal สแกนพิเศษ...');
+    // ตรวจสอบว่า Modal ถูกสร้างแล้วหรือยัง
+    let modal = document.getElementById('specialScanModal');
     
-    if (!specialScanModal) {
-        console.error('❌ ไม่พบ Modal สแกนพิเศษ');
+    // ถ้ายังไม่มี ให้สร้างใหม่
+    if (!modal) {
+        console.log('⚠️ Modal ยังไม่ถูกสร้าง กำลังสร้างใหม่...');
+        createSpecialScanButton(); // สร้าง Modal
+        modal = document.getElementById('specialScanModal');
+    }
+    
+    if (!modal) {
+        console.log('❌ ไม่สามารถสร้าง Modal ได้');
         return;
     }
-
-    specialScanModal.classList.add('show');
-
-    // Focus ที่ช่องสแกน
+    
+    console.log('✅ เปิด Modal สแกนพิเศษ');
+    modal.classList.add('show');
+    
+    // Reset to barcode mode
+    specialSearchMode = 'barcode';
+    
+    // Reset UI
+    const btns = document.querySelectorAll('.special-mode-btn');
+    if (btns.length >= 2) {
+        btns.forEach(btn => btn.classList.remove('active'));
+        btns[0].classList.add('active');
+    }
+    
+    const barcodeSection = document.getElementById('specialBarcodeSection');
+    const nameSection = document.getElementById('specialNameSection');
+    
+    if (barcodeSection) barcodeSection.style.display = 'block';
+    if (nameSection) nameSection.classList.remove('active');
+    
+    // Clear inputs
+    const scanInput = document.getElementById('specialScanInput');
+    const nameInput = document.getElementById('specialNameInput');
+    const itemsFound = document.getElementById('specialItemsFound');
+    const suggestions = document.getElementById('specialNameSuggestions');
+    
+    if (scanInput) scanInput.value = '';
+    if (nameInput) nameInput.value = '';
+    if (itemsFound) itemsFound.innerHTML = '';
+    if (suggestions) suggestions.classList.remove('show');
+    
+    // Focus
     setTimeout(() => {
-        const input = document.getElementById('specialScanInput');
-        if (input) {
-            input.value = '';
-            input.focus();
-            
-            // Event: กด Enter เพื่อค้นหา
-            input.onkeypress = function(e) {
-                if (e.key === 'Enter') {
-                    const barcode = this.value.trim();
-                    if (barcode) {
-                        searchLinkedProducts(barcode);
-                    }
-                }
-            };
+        if (scanInput) {
+            scanInput.focus();
+            console.log('✅ Focus ที่ช่องสแกน');
         }
-    }, 300);
+    }, 100);
 }
 
 
@@ -15595,34 +17426,27 @@ function openSpecialScanModal() {
  * ปิด Modal และเคลียร์ข้อมูล
  */
 function closeSpecialScanModal() {
-    console.log('❌ ปิด Modal สแกนพิเศษ');
-    
-    if (specialScanModal) {
-        specialScanModal.classList.remove('show');
+    const modal = document.getElementById('specialScanModal');
+    if (modal) {
+        modal.classList.remove('show');
+        console.log('✅ ปิด Modal สแกนพิเศษ');
         
-        // ⭐ เคลียร์ข้อมูลทั้งหมด
+        // Clear data
         specialScanResults = [];
         currentSpecialBarcode = '';
         
-        // ⭐ เคลียร์ช่องสแกน
-        const input = document.getElementById('specialScanInput');
-        if (input) {
-            input.value = '';
-        }
+        // Clear inputs
+        const scanInput = document.getElementById('specialScanInput');
+        const nameInput = document.getElementById('specialNameInput');
+        const itemsFound = document.getElementById('specialItemsFound');
+        const suggestions = document.getElementById('specialNameSuggestions');
         
-        // ⭐ รีเซ็ตเนื้อหา
-        const content = document.getElementById('specialItemsContent');
-        if (content) {
-            content.innerHTML = `
-                <div class="special-empty-state">
-                    <i>🔍</i>
-                    <h3>ສະແກນບາໂຄດເພື່ອຄົ້ນຫາສິນຄ້າ</h3>
-                    <p>ລະບົບຈະຄົ້ນຫາສິນຄ້າທັງໝົດທີ່ເຊື່ອມໂຍງກັນ</p>
-                </div>
-            `;
-        }
-        
-        console.log('✅ เคลียร์ข้อมูล Pop-up สำเร็จ');
+        if (scanInput) scanInput.value = '';
+        if (nameInput) nameInput.value = '';
+        if (itemsFound) itemsFound.innerHTML = '';
+        if (suggestions) suggestions.classList.remove('show');
+    } else {
+        console.log('❌ ไม่พบ Modal');
     }
 }
 
@@ -15630,61 +17454,319 @@ function closeSpecialScanModal() {
  * ค้นหาสินค้าเชื่อมโยง
  */
 function searchLinkedProducts(barcode) {
-    console.log('🔍 ค้นหาสินค้าเชื่อมโยงสำหรับ:', barcode);
-
-    if (!itemsData || itemsData.size === 0) {
-        showSpecialMessage('⚠️ ไม่มีข้อมูลสินค้าในระบบ', 'error');
+    console.log('🔍 ค้นหาสินค้าที่เชื่อมโยงกับบาร์โค้ด:', barcode);
+    
+    if (!barcode || !barcode.trim()) {
+        showMessage('กรุณากรอกรหัสสินค้า', 'error');
         return;
     }
-
-    // แสดง Loading
-    showSpecialLoading();
-
-    // หาสินค้าจาก barcode ที่สแกน
-    const scannedItem = itemsData.get(barcode.trim());
+    
+    const resultsContainer = document.getElementById('specialItemsFound');
+    if (!resultsContainer) {
+        console.log('❌ ไม่พบ resultsContainer');
+        return;
+    }
+    
+    const searchBarcode = barcode.toString().trim();
+    currentSpecialBarcode = searchBarcode;
+    
+    // ⭐ ขั้นตอนที่ 1: หาข้อมูลสินค้าที่ตรงกับบาร์โค้ดที่สแกน
+    const scannedItem = itemsData.get(searchBarcode);
+    
     if (!scannedItem) {
-        showSpecialMessage(`❌ ບໍ່ພົບສິນຄ້າລະຫັດ: ${barcode}`, 'error');
+        console.log('❌ ไม่พบสินค้าในระบบ:', searchBarcode);
+        resultsContainer.innerHTML = `
+            <div class="special-empty-state">
+                <i style="font-size: 4rem;">❌</i>
+                <h3>ບໍ່ພົບສິນຄ້າ</h3>
+                <p>ບໍ່ພົບສິນຄ້າລະຫັດ: ${searchBarcode}</p>
+            </div>
+        `;
         return;
     }
-
-    // ดึง columnJ (รหัสเชื่อมโยง)
-    const linkCode = scannedItem.columnJ;
-    if (!linkCode) {
-        showSpecialMessage('⚠️ สินค้านี้ไม่มีรหัสเชื่อมโยง', 'error');
-        return;
-    }
-
-    console.log('🔗 รหัสเชื่อมโยง:', linkCode);
-
-    // ค้นหาสินค้าทั้งหมดที่มี columnJ เหมือนกัน
-    const linkedProducts = [];
-    currentSpecialBarcode = linkCode;
-
-    itemsData.forEach((item) => {
-        if (item.columnJ && item.columnJ.toString().trim() === linkCode.toString().trim()) {
-            linkedProducts.push({
-                barcode: item.columnA || '',
+    
+    // ⭐ ขั้นตอนที่ 2: ดึงค่า Column J ของสินค้าที่สแกน
+    const targetColumnJ = (scannedItem.columnJ || searchBarcode).toString().trim();
+    console.log('📌 Column J ที่ต้องค้นหา:', targetColumnJ);
+    
+    // ⭐ ขั้นตอนที่ 3: ค้นหาสินค้าทั้งหมดที่มี Column J เหมือนกัน
+    const matchingItems = [];
+    
+    for (let [itemBarcode, item] of itemsData.entries()) {
+        const itemColumnJ = (item.columnJ || itemBarcode).toString().trim();
+        
+        // ⭐ เปรียบเทียบ Column J
+        if (itemColumnJ === targetColumnJ) {
+            const costInfo = findCostByBarcode(itemBarcode);
+            
+            matchingItems.push({
+                barcode: itemBarcode,
                 name: item.columnB || 'ບໍ່ມີຊື່',
-                price: parseFloat(item.columnC) || 0,
                 unit: item.columnH || 'ຊິ້ນ',
-                quantityPerUnit: parseFloat(item.columnI) || 1,
+                quantityPerPack: parseFloat(item.columnI) || 1,
+                price: parseFloat(item.columnC) || 0,
                 image: item.columnK || '',
-                linkCode: item.columnJ || '',
-                quantity: 1 // ค่าเริ่มต้น
+                columnJ: itemColumnJ,
+                profit: costInfo ? (parseFloat(costInfo.columnP) || 0) : 0,
+                costPrice: costInfo ? (parseFloat(costInfo.columnN) || 0) : 0
             });
         }
-    });
-
-    console.log(`📦 พบสินค้าเชื่อมโยง: ${linkedProducts.length} รายการ`);
-
-    if (linkedProducts.length === 0) {
-        showSpecialMessage('❌ ບໍ່ພົບສິນຄ້າເຊື່ອມໂຍງ', 'error');
+    }
+    
+    console.log(`✅ พบสินค้าที่มี Column J = "${targetColumnJ}" จำนวน ${matchingItems.length} รายการ`);
+    
+    if (matchingItems.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="special-empty-state">
+                <i style="font-size: 4rem;">⚠️</i>
+                <h3>ບໍ່ພົບສິນຄ້າທີ່ເຊື່ອມໂຍງ</h3>
+                <p>ບໍ່ພົບສິນຄ້າອື່ນທີ່ມີລະຫັດເຊື່ອມໂຍງ Column J: ${targetColumnJ}</p>
+            </div>
+        `;
         return;
     }
+    
+    // ⭐ เรียงลำดับตามชื่อ
+    matchingItems.sort((a, b) => a.name.localeCompare(b.name, 'lo'));
+    
+    displaySpecialResults(matchingItems);
+}
 
-    // เก็บผลลัพธ์และแสดง
-    specialScanResults = linkedProducts;
-    displayLinkedProducts(linkedProducts);
+function displaySpecialResults(items) {
+    const resultsContainer = document.getElementById('specialItemsFound');
+    if (!resultsContainer) return;
+    
+    specialScanResults = items.map((item, index) => ({
+        ...item,
+        id: Date.now() + index,
+        quantity: 1,
+        totalPrice: item.price,
+        selected: false
+    }));
+    
+    let html = `
+        <div class="special-section-title">
+            ✅ ພົບສິນຄ້າ ${items.length} ລາຍການ
+        </div>
+    `;
+    
+    specialScanResults.forEach((item, index) => {
+        html += `
+            <div class="special-item-card" id="specialItem_${index}">
+                <div class="special-item-header">
+                    <input type="checkbox" class="special-item-checkbox" 
+                           onchange="toggleSpecialItem(${index}, this.checked)">
+                    
+                    ${item.image ? 
+                        `<img src="${item.image}" class="special-item-image" alt="${item.name}">` :
+                        `<div class="special-no-image">📦</div>`
+                    }
+                    
+                    <div class="special-item-info">
+                        <div class="special-item-name">${item.name}</div>
+                        <div class="special-item-unit">${item.unit} (${item.quantityPerPack} ຕໍ່ແພັກ)</div>
+                    </div>
+                </div>
+                
+                <div class="special-edit-fields">
+                    <div class="special-field-group">
+                        <label class="special-field-label">ລາຄາ</label>
+                        <input type="number" 
+                               class="special-field-input" 
+                               id="price_${index}"
+                               value="${item.price}" 
+                               step="0.01"
+                               onkeyup="calcTotal(${index})"
+                               onchange="calcTotal(${index})"
+                               oninput="calcTotal(${index})">
+                    </div>
+                    
+                    <div class="special-field-group">
+                        <label class="special-field-label">ຈໍານວນ</label>
+                        <input type="number" 
+                               class="special-field-input" 
+                               id="qty_${index}"
+                               value="${item.quantity}" 
+                               min="1"
+                               onkeyup="calcTotal(${index})"
+                               onchange="calcTotal(${index})"
+                               oninput="calcTotal(${index})">
+                    </div>
+                    
+                    <div class="special-field-group">
+                        <label class="special-field-label">ລວມ</label>
+                        <div class="special-total-display" id="total_${index}">
+                            ${item.totalPrice.toLocaleString()} ₭
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += `
+        <div style="margin-top: 25px; text-align: center;">
+            <button class="save-button" onclick="addSelectedSpecialToCart()" 
+                    style="width: 100%; max-width: 400px;">
+                ✅ ເພີ່ມສິນຄ້າທີ່ເລືອກເຂົ້າລາຍການ
+            </button>
+        </div>
+    `;
+    
+    resultsContainer.innerHTML = html;
+}
+// ฟังก์ชันคำนวณแบบง่าย ๆ
+function calcTotal(index) {
+    console.log('🔔 calcTotal เรียก index:', index);
+    
+    // อ่านค่าจาก input
+    const priceInput = document.getElementById('price_' + index);
+    const qtyInput = document.getElementById('qty_' + index);
+    const totalDisplay = document.getElementById('total_' + index);
+    
+    console.log('📋 Elements:', {
+        priceInput: priceInput,
+        qtyInput: qtyInput,
+        totalDisplay: totalDisplay
+    });
+    
+    if (!priceInput || !qtyInput || !totalDisplay) {
+        console.log('❌ ไม่พบ element');
+        return;
+    }
+    
+    // แปลงเป็นตัวเลข
+    const price = parseFloat(priceInput.value) || 0;
+    const qty = parseInt(qtyInput.value) || 1;
+    
+    // คำนวณ
+    const total = price * qty;
+    
+    console.log('💰 คำนวณ:', price, '×', qty, '=', total);
+    
+    // อัปเดตใน array
+    if (specialScanResults[index]) {
+        specialScanResults[index].price = price;
+        specialScanResults[index].quantity = qty;
+        specialScanResults[index].totalPrice = total;
+    }
+    
+    // อัปเดต UI
+    totalDisplay.textContent = total.toLocaleString() + ' ₭';
+    
+    console.log('✅ อัปเดตเสร็จ!');
+}
+
+
+
+function toggleSpecialItem(index, checked) {
+    if (specialScanResults[index]) {
+        specialScanResults[index].selected = checked;
+        const card = document.getElementById(`specialItem_${index}`);
+        if (card) {
+            card.classList.toggle('selected', checked);
+        }
+    }
+}
+function updateSpecialPrice(index, newPrice) {
+    if (!specialScanResults[index]) return;
+    
+    // ⭐ แปลงเป็นตัวเลขทันที
+    const price = parseFloat(newPrice);
+    
+    // ถ้าไม่ใช่ตัวเลข ให้ใช้ 0
+    if (isNaN(price) || price < 0) {
+        specialScanResults[index].price = 0;
+    } else {
+        specialScanResults[index].price = price;
+    }
+    
+    // ⭐ คำนวณทันที
+    updateSpecialTotal(index);
+}
+
+function updateSpecialQty(index, newQty) {
+    if (!specialScanResults[index]) return;
+    
+    // ⭐ แปลงเป็นตัวเลขทันที
+    const qty = parseInt(newQty);
+    
+    // ถ้าไม่ใช่ตัวเลขหรือน้อยกว่า 1 ให้ใช้ 1
+    if (isNaN(qty) || qty < 1) {
+        specialScanResults[index].quantity = 1;
+        // อัปเดต input กลับเป็น 1
+        const qtyInput = document.getElementById(`specialQty_${index}`);
+        if (qtyInput) qtyInput.value = 1;
+    } else {
+        specialScanResults[index].quantity = qty;
+    }
+    
+    // ⭐ คำนวณทันที
+    updateSpecialTotal(index);
+}
+function updateSpecialTotal(index) {
+    if (!specialScanResults[index]) return;
+    
+    const item = specialScanResults[index];
+    
+    // ⭐ คำนวณ: ລວມ = ລາຄາ × ຈໍານວນ
+    const total = item.price * item.quantity;
+    item.totalPrice = total;
+    
+    // ⭐ อัปเดต UI ทันที
+    const totalDisplay = document.getElementById(`specialTotal_${index}`);
+    if (totalDisplay) {
+        totalDisplay.textContent = total.toLocaleString('lo-LA', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        }) + ' ₭';
+    }
+}
+
+function addSelectedSpecialToCart() {
+    const selected = specialScanResults.filter(item => item.selected);
+    
+    if (selected.length === 0) {
+        showMessage('ກະລຸນາເລືອກສິນຄ້າກ່ອນ', 'error');
+        return;
+    }
+    
+    selected.forEach(item => {
+        const existing = scannedItems.find(i => 
+            i.barcode.toString().trim() === item.barcode.toString().trim()
+        );
+        
+        if (existing) {
+            existing.quantity += item.quantity;
+            existing.totalPrice = existing.quantity * existing.price;
+            updateItemInTable(existing);
+        } else {
+            const newItem = {
+                id: itemCounter++,
+                barcode: item.barcode,
+                name: item.name,
+                unit: item.unit,
+                quantityPerPack: item.quantityPerPack,
+                price: item.price,
+                quantity: item.quantity,
+                image: item.image,
+                totalPrice: item.totalPrice,
+                profit: item.profit,
+                costPrice: item.costPrice
+            };
+            
+            scannedItems.push(newItem);
+            addItemToTable(newItem);
+        }
+    });
+    
+    updateTotal();
+    updateItemCount();
+    updateSaveButtonState();
+    autoSaveScannedItems();
+    
+    showMessage(`ເພີ່ມ ${selected.length} ລາຍການແລ້ວ`, 'success');
+    closeSpecialScanModal();
 }
 
 /**
@@ -15932,10 +18014,171 @@ console.log(`
 ║  ✅ Auto Add to Main Table                ║
 ╚════════════════════════════════════════════╝
 `);
+// ==============================================
+// Special Scan - Mode Switching
+// ==============================================
 
+function switchSpecialMode(mode) {
+    specialSearchMode = mode;
+    
+    const btns = document.querySelectorAll('.special-mode-btn');
+    btns.forEach(btn => btn.classList.remove('active'));
+    
+    if (mode === 'barcode') {
+        btns[0].classList.add('active');
+        document.getElementById('specialBarcodeSection').style.display = 'block';
+        document.getElementById('specialNameSection').classList.remove('active');
+        document.getElementById('specialScanInput').focus();
+    } else {
+        btns[1].classList.add('active');
+        document.getElementById('specialBarcodeSection').style.display = 'none';
+        document.getElementById('specialNameSection').classList.add('active');
+        document.getElementById('specialNameInput').focus();
+    }
+    
+    // Clear results
+    document.getElementById('specialItemsFound').innerHTML = '';
+    document.getElementById('specialNameSuggestions').classList.remove('show');
+}
+
+function searchSpecialByName(text) {
+    const suggestions = document.getElementById('specialNameSuggestions');
+    
+    if (!text || text.trim().length < 1) {
+        suggestions.classList.remove('show');
+        return;
+    }
+    
+    const searchLower = text.toLowerCase().trim();
+    const results = [];
+    
+    // ค้นหาจาก Column B
+    for (let [barcode, item] of itemsData.entries()) {
+        const name = (item.columnB || '').toString().toLowerCase();
+        if (name.includes(searchLower)) {
+            results.push({
+                barcode: barcode,
+                name: item.columnB || 'ບໍ່ມີຊື່',
+                unit: item.columnH || '',
+                price: item.columnC || 0
+            });
+        }
+        if (results.length >= 30) break;
+    }
+    
+    if (results.length === 0) {
+        suggestions.innerHTML = '<div class="special-name-item">ບໍ່ພົບສິນຄ້າ</div>';
+        suggestions.classList.add('show');
+        return;
+    }
+    
+    const html = results.map(item => {
+        const highlighted = item.name.replace(
+            new RegExp(`(${text})`, 'gi'),
+            '<span class="special-name-highlight">$1</span>'
+        );
+        return `
+            <div class="special-name-item" onclick="selectSpecialByName('${item.barcode}')">
+                <div style="font-weight: bold;">${highlighted}</div>
+                <div style="font-size: 0.9rem; color: #666;">
+                    ${item.unit} | ${parseFloat(item.price).toLocaleString()} ₭
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    suggestions.innerHTML = html;
+    suggestions.classList.add('show');
+}
+
+function selectSpecialByName(barcode) {
+    console.log('📝 เลือกสินค้าจากชื่อ, บาร์โค้ด:', barcode);
+    
+    // ซ่อน suggestions
+    const suggestions = document.getElementById('specialNameSuggestions');
+    const nameInput = document.getElementById('specialNameInput');
+    
+    if (suggestions) suggestions.classList.remove('show');
+    if (nameInput) nameInput.value = '';
+    
+    // ⭐ ขั้นตอนที่ 1: หาข้อมูลสินค้าที่เลือก
+    const selectedItem = itemsData.get(barcode.toString().trim());
+    
+    if (!selectedItem) {
+        console.log('❌ ไม่พบสินค้า:', barcode);
+        showMessage('ບໍ່ພົບສິນຄ້າ', 'error');
+        return;
+    }
+    
+    // ⭐ ขั้นตอนที่ 2: ดึง Column J
+    const targetColumnJ = (selectedItem.columnJ || barcode).toString().trim();
+    console.log('📌 Column J ที่จะค้นหา:', targetColumnJ);
+    
+    // ⭐ ขั้นตอนที่ 3: ค้นหาสินค้าทั้งหมดที่มี Column J เหมือนกัน
+    const matchingItems = [];
+    
+    for (let [itemBarcode, item] of itemsData.entries()) {
+        const itemColumnJ = (item.columnJ || itemBarcode).toString().trim();
+        
+        if (itemColumnJ === targetColumnJ) {
+            const costInfo = findCostByBarcode(itemBarcode);
+            
+            matchingItems.push({
+                barcode: itemBarcode,
+                name: item.columnB || 'ບໍ່ມີຊື່',
+                unit: item.columnH || 'ຊິ້ນ',
+                quantityPerPack: parseFloat(item.columnI) || 1,
+                price: parseFloat(item.columnC) || 0,
+                image: item.columnK || '',
+                columnJ: itemColumnJ,
+                profit: costInfo ? (parseFloat(costInfo.columnP) || 0) : 0,
+                costPrice: costInfo ? (parseFloat(costInfo.columnN) || 0) : 0
+            });
+        }
+    }
+    
+    console.log(`✅ พบสินค้าที่มี Column J = "${targetColumnJ}" จำนวน ${matchingItems.length} รายการ`);
+    
+    if (matchingItems.length === 0) {
+        const resultsContainer = document.getElementById('specialItemsFound');
+        if (resultsContainer) {
+            resultsContainer.innerHTML = `
+                <div class="special-empty-state">
+                    <i style="font-size: 4rem;">⚠️</i>
+                    <h3>ບໍ່ພົບສິນຄ້າທີ່ເຊື່ອມໂຍງ</h3>
+                    <p>ບໍ່ພົບສິນຄ້າອື່ນທີ່ມີລະຫັດເຊື່ອມໂຍງ Column J: ${targetColumnJ}</p>
+                </div>
+            `;
+        }
+        return;
+    }
+    
+    // เรียงลำดับตามชื่อ
+    matchingItems.sort((a, b) => a.name.localeCompare(b.name, 'lo'));
+    
+    displaySpecialResults(matchingItems);
+    
+    // Focus กลับ
+    setTimeout(() => {
+        if (nameInput) nameInput.focus();
+    }, 100);
+}
 // ==============================================
 // 🎉 END OF SPECIAL SCAN SYSTEM
 // ==============================================
+function showSaveLoading() {
+    const overlay = document.getElementById('saveLoadingOverlay');
+    if (overlay) {
+        overlay.classList.add('show');
+    }
+}
+
+function hideSaveLoading() {
+    const overlay = document.getElementById('saveLoadingOverlay');
+    if (overlay) {
+        overlay.classList.remove('show');
+    }
+}
     </script>
 </body>
 </html>
