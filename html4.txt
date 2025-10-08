@@ -1,277 +1,3 @@
-/**
- * ระบบสแกนขายสินค้า - Google Apps Script Backend
- */
-
-// กำหนดชื่อ Spreadsheet และ Sheet
-const SPREADSHEET_ID = '10SgCZ2H-4d37-3Slcj-riBK2SDgAbYpXW6SZvgSFUa8';
-const ITEMS_SHEET = 'Items';
-const PRICE_STUDY_SHEET = 'ສຶກສາລາຄາຕົ້ນທຶນ';
-const ORDER_SHEET_ID = '1zk7v8iClQjGf7WseWld_hwix4upAr7KoGqn-eo01fgk';
-const ORDER_SHEET = 'ສັ່ງຊື້ສິນຄ້າ';
-
-const INITIAL_QUOTA = 20000;
-
-/**
- * เปิดหน้าเว็บ HTML
- */
-function doGet() {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-/**
- * ดึงข้อมูลจากตาราง Items
- */
-function getItemsData() {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(ITEMS_SHEET);
-   
-    if (!sheet) {
-      Logger.log('Sheet "' + ITEMS_SHEET + '" not found');
-      return [];
-    }
-   
-    const data = sheet.getDataRange().getValues();
-    if (!data || data.length <= 1) {
-      Logger.log('No data in Items sheet');
-      return [];
-    }
-    
-    const headers = data[0];
-    const rows = data.slice(1);
-   
-    const result = [];
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const item = {};
-      for (let j = 0; j < headers.length; j++) {
-        item['column' + String.fromCharCode(65 + j)] = row[j] || '';
-      }
-      result.push(item);
-    }
-    
-    return result;
-  } catch (error) {
-    Logger.log('Error getting items data: ' + error.toString());
-    return [];
-  }
-}
-
-/**
- * ดึงข้อมูลจากตาราง ສຶກສາລາຄາຕົ້ນທຶນ
- */
-function getPriceStudyData() {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(PRICE_STUDY_SHEET);
-   
-    if (!sheet) {
-      Logger.log('Sheet "' + PRICE_STUDY_SHEET + '" not found - returning empty array');
-      return [];
-    }
-   
-    const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) {
-      Logger.log('Sheet "' + PRICE_STUDY_SHEET + '" has no data - returning empty array');
-      return [];
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const rows = data.slice(1);
-   
-    const result = [];
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const item = {};
-      for (let j = 0; j < headers.length; j++) {
-        item['column' + String.fromCharCode(65 + j)] = row[j] || '';
-      }
-      result.push(item);
-    }
-    
-    Logger.log('getPriceStudyData returning ' + result.length + ' items');
-    return result;
-  } catch (error) {
-    Logger.log('Error getting price study data: ' + error.toString());
-    return [];
-  }
-}
-
-/**
- * ดึงรายการร้านทั้งหมดจาก Column F
- */
-function getStoreList() {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheet = ss.getSheetByName(PRICE_STUDY_SHEET);
-   
-    if (!sheet) {
-      Logger.log('Sheet "' + PRICE_STUDY_SHEET + '" not found');
-      return [];
-    }
-   
-    const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) {
-      return [];
-    }
-    
-    const data = sheet.getRange('F2:F' + lastRow).getValues();
-    const storesSet = {};
-    
-    for (let i = 0; i < data.length; i++) {
-      const store = data[i][0];
-      if (store && store.toString().trim()) {
-        storesSet[store.toString().trim()] = true;
-      }
-    }
-    
-    const stores = Object.keys(storesSet).sort();
-    return stores;
-  } catch (error) {
-    Logger.log('Error getting store list: ' + error.toString());
-    return [];
-  }
-}
-
-/**
- * บันทึกใบสั่งซื้อ
- */
-function saveOrder(orderData) {
-  try {
-    const ss = SpreadsheetApp.openById(ORDER_SHEET_ID);
-    let sheet = ss.getSheetByName(ORDER_SHEET);
-    
-    // ถ้ายังไม่มี sheet ให้สร้างใหม่
-    if (!sheet) {
-      sheet = ss.insertSheet(ORDER_SHEET);
-      // สร้าง header
-      sheet.appendRow(['ວັນທີ', 'ເລກທີໃບສັ່ງຊື້', 'ລະຫັດສິນຄ້າ', 'ຊື່ສິນຄ້າ', 'ຫົວໜ່ວຍ', 'ຈຳນວນ', 'ລາຄາ/ໜ່ວຍ', 'ລວມເງິນ', 'ວິທີການ']);
-    }
-    
-    const timestamp = new Date();
-    const orderNumber = orderData.orderNumber;
-    const method = orderData.method;
-    
-    // เพิ่มข้อมูลแต่ละรายการ
-    const items = orderData.items;
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      sheet.appendRow([
-        timestamp,
-        orderNumber,
-        item.barcode,
-        item.itemName,
-        item.unit,
-        item.quantity,
-        item.price,
-        item.total,
-        method
-      ]);
-    }
-    
-    return { success: true, orderNumber: orderNumber };
-  } catch (error) {
-    Logger.log('Error saving order: ' + error.toString());
-    return { success: false, error: error.toString() };
-  }
-}
-
-/**
- * ดึงข้อมูลใบสั่งซื้อเดิม
- */
-function loadOrder(orderNumber) {
-  try {
-    const ss = SpreadsheetApp.openById(ORDER_SHEET_ID);
-    const sheet = ss.getSheetByName(ORDER_SHEET);
-    
-    if (!sheet) {
-      return { success: false, items: [] };
-    }
-    
-    const data = sheet.getDataRange().getValues();
-    if (!data || data.length <= 1) {
-      return { success: false, items: [] };
-    }
-    
-    const headers = data[0];
-    const rows = data.slice(1);
-    
-    const orderItems = [];
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row[1] === orderNumber) {
-        orderItems.push({
-          barcode: row[2],
-          itemName: row[3],
-          unit: row[4],
-          quantity: row[5],
-          price: row[6],
-          total: row[7]
-        });
-      }
-    }
-    
-    return { success: true, items: orderItems };
-  } catch (error) {
-    Logger.log('Error loading order: ' + error.toString());
-    return { success: false, items: [] };
-  }
-}
-
-/**
- * สร้างเลขที่ใบสั่งซื้อใหม่
- */
-function generateOrderNumber() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const time = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
-  
-  return 'PO-' + year + month + day + '-' + time;
-}
-
-function debugPriceStudy() {
-  try {
-    const ss = SpreadsheetApp.openById('10SgCZ2H-4d37-3Slcj-riBK2SDgAbYpXW6SZvgSFUa8');
-    Logger.log('Spreadsheet opened: ' + ss.getName());
-    
-    const sheet = ss.getSheetByName('ສຶກສາລາຄາຕົ້ນທຶນ');
-    Logger.log('Sheet found: ' + (sheet ? 'YES' : 'NO'));
-    
-    if (sheet) {
-      Logger.log('Last Row: ' + sheet.getLastRow());
-      Logger.log('Last Column: ' + sheet.getLastColumn());
-      
-      const data = sheet.getDataRange().getValues();
-      Logger.log('Data rows: ' + data.length);
-      Logger.log('First row: ' + JSON.stringify(data[0]));
-    }
-    
-    const result = getPriceStudyData();
-    Logger.log('getPriceStudyData result length: ' + result.length);
-    Logger.log('First item: ' + JSON.stringify(result[0]));
-    
-  } catch (error) {
-    Logger.log('ERROR: ' + error.toString());
-  }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="lo">
 <head>
@@ -279,6 +5,364 @@ function debugPriceStudy() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ລະບົບແຈ້ງເຕືອນສະຕັອກສິນຄ້າ</title>
     <style>
+
+.badge-items {
+    background: #f44336;
+    color: white;
+}
+
+.badge-price-study {
+    background: #4caf50;
+    color: white;
+}
+
+/* ⭐ Badge ใหม่สำหรับราคาจากตารางหลัก */
+.badge-main-table {
+    background: #2196f3;
+    color: white;
+}
+
+
+   /* สไตล์สำหรับแสดงจำนวนรายการใน Order List */
+.order-option-item {
+    padding: 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.order-option-item:hover {
+    border-color: #667eea;
+    background: #f0f4ff;
+    transform: translateX(5px);
+}
+
+.order-display-text {
+    font-size: 1.05rem;
+    font-weight: bold;
+    color: #333;
+    flex: 1;
+}
+
+.order-item-count {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.9rem;
+    font-weight: bold;
+    margin-left: 10px;
+} 
+
+      /* Phone Dropdown Styles */
+.phone-dropdown-item {
+    padding: 12px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.2s;
+}
+
+.phone-dropdown-item:hover {
+    background: #e3f2fd !important;
+}
+
+.phone-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+/* Column Selection Modal Styles */
+.column-checkbox-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.column-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: #f8f9fa;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 1rem;
+}
+
+.column-checkbox-item:hover {
+    background: #e3f2fd;
+    border-color: #4facfe;
+}
+
+.column-checkbox-item input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.column-checkbox-item span {
+    flex: 1;
+    font-weight: 500;
+}
+
+
+/* Saving Animation Styles */
+.saving-animation-content {
+    background: white;
+    padding: 50px;
+    border-radius: 20px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    min-width: 300px;
+}
+
+.saving-spinner {
+    width: 80px;
+    height: 80px;
+    border: 6px solid #f3f3f3;
+    border-top: 6px solid #4facfe;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 25px;
+}
+
+.saving-text {
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: #4facfe;
+    margin-bottom: 10px;
+}
+
+.saving-subtext {
+    font-size: 1rem;
+    color: #999;
+}
+
+.success-checkmark {
+    font-size: 4rem;
+    color: #4caf50;
+    animation: scaleIn 0.5s ease-out;
+}
+
+@keyframes scaleIn {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.fade-out {
+    animation: fadeOut 0.3s ease-out;
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+/* ปรับปรุงสไตล์ปุ่มใน Modal */
+.btn-confirm-stores {
+    background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+    transition: all 0.3s;
+}
+
+.btn-confirm-stores:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+}
+
+
+
+
+/* Loading Animation สำหรับดึงใบสั่งซื้อ */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+}
+
+.loading-overlay.show {
+    display: flex;
+}
+
+.loading-content {
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+
+.loading-spinner {
+    width: 60px;
+    height: 60px;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #667eea;
+    margin-top: 15px;
+}
+
+.loading-subtext {
+    font-size: 0.9rem;
+    color: #999;
+    margin-top: 10px;
+}
+
+
+/* สไตล์สำหรับ Modal เลือกใบสั่งซื้อ */
+.order-option-item {
+    padding: 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+}
+
+.order-option-item:hover {
+    border-color: #667eea;
+    background: #f0f4ff;
+    transform: translateX(5px);
+}
+
+.order-display-text {
+    font-size: 1.05rem;
+    font-weight: bold;
+    color: #333;
+}
+
+
+/* ตัวเลือกโหมดข้อมูล (ใกล้หมด / ทั้งหมด) - บังคับให้เรียงแนวนอน */
+.data-mode-options {
+    display: flex !important;
+    flex-direction: row !important; /* ⭐ บังคับให้เป็นแนวนอน */
+    gap: 15px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: linear-gradient(135deg, #fff5f5 0%, #f0fff4 100%);
+    border-radius: 10px;
+    border: 2px solid #e0e0e0;
+    align-items: stretch; /* ⭐ เพิ่มให้ปุ่มสูงเท่ากัน */
+}
+
+.data-mode-btn {
+    flex: 1 1 50%; /* ⭐ ให้แต่ละปุ่มกว้าง 50% */
+    padding: 15px 20px; /* ⭐ เพิ่ม padding */
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+    font-size: 1.05rem; /* ⭐ เพิ่มขนาดตัวอักษร */
+    font-weight: bold;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    white-space: nowrap; /* ⭐ ไม่ให้ตัวอักษรตัดบรรทัด */
+}
+
+.data-mode-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.data-mode-btn.active.mode-low-stock {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+    color: white;
+    border-color: #ff6b6b;
+}
+
+.data-mode-btn.active.mode-all-items {
+    background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+    color: white;
+    border-color: #4caf50;
+}
+
+/* Responsive สำหรับมือถือ */
+@media (max-width: 768px) {
+    .data-mode-options {
+        flex-direction: column !important; /* กลับมาเป็นแนวตั้งบนมือถือ */
+        gap: 10px;
+    }
+    
+    .data-mode-btn {
+        flex: 1 1 100%;
+        width: 100%;
+    }
+}
+
+/* สีไล่โทนสำหรับสินค้าในกลุ่มเดียวกัน */
+.product-item.color-1 { background: #fff3cd !important; }
+.product-item.color-2 { background: #ffe4b5 !important; }
+.product-item.color-3 { background: #e3f2fd !important; }
+.product-item.color-4 { background: #c8e6c9 !important; }
+.product-item.color-5 { background: #e1bee7 !important; }
+.product-item.color-6 { background: #ffccbc !important; }
+
+.selectable-item.color-1 { background: #fff3cd !important; }
+.selectable-item.color-2 { background: #ffe4b5 !important; }
+.selectable-item.color-3 { background: #e3f2fd !important; }
+.selectable-item.color-4 { background: #c8e6c9 !important; }
+.selectable-item.color-5 { background: #e1bee7 !important; }
+.selectable-item.color-6 { background: #ffccbc !important; }
+
+/* รายละเอียดสินค้า */
+.product-stock-detail {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 5px;
+    line-height: 1.4;
+}
+
+.item-details-extended {
+    font-size: 0.85rem;
+    color: #666;
+    line-height: 1.5;
+}
+
+
+
+
      * {
         margin: 0;
         padding: 0;
@@ -369,7 +453,6 @@ function debugPriceStudy() {
         100% { transform: rotate(360deg); }
     }
 
-    /* LOW STOCK ALERT SYSTEM */
     .low-stock-alert-btn {
         position: fixed;
         top: 20px;
@@ -599,7 +682,6 @@ function debugPriceStudy() {
         color: #4caf50;
     }
 
-    /* ORDER TABLE STYLES */
     .order-section {
         margin-top: 30px;
         padding: 20px;
@@ -787,7 +869,6 @@ function debugPriceStudy() {
         box-shadow: 0 5px 15px rgba(37, 211, 102, 0.4);
     }
 
-    /* COMPARE PRICE TABLE */
     .compare-section {
         margin-top: 20px;
     }
@@ -823,16 +904,15 @@ function debugPriceStudy() {
     }
 
     .badge-items {
-        background: #4caf50;
+        background: #f44336;
         color: white;
     }
 
     .badge-price-study {
-        background: #ffa726;
+        background: #4caf50;
         color: white;
     }
 
-    /* STORE SELECTOR MODAL */
     .store-selector-modal {
         position: fixed;
         top: 0;
@@ -943,7 +1023,6 @@ function debugPriceStudy() {
         color: #333;
     }
 
-    /* SEARCH MODAL ENHANCEMENTS */
     .search-options {
         display: flex;
         gap: 15px;
@@ -1080,7 +1159,6 @@ function debugPriceStudy() {
         box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
     }
 
-    /* PRINT STYLES */
     @media print {
         body * {
             visibility: hidden;
@@ -1170,7 +1248,7 @@ function debugPriceStudy() {
             <div id="orderSection" class="order-section" style="display: none;">
                 <div class="order-header">
                     <div class="order-number-display">
-                        🧾 ເລກທີໃບສັ່ງຊື້: <span id="currentOrderNumber">-</span>
+                        🧾 ເລກທີໃບສັ່ງຊື້: <span id="currentOrderNumber" data-is-loaded="false">-</span>
                     </div>
                     <div class="order-actions">
                         <button class="order-btn btn-load-order" onclick="showLoadOrderModal()">
@@ -1226,6 +1304,8 @@ function debugPriceStudy() {
     let itemsData = new Map();
     let priceStudyData = new Map();
     let storeList = [];
+    let phoneNumberList = []; // ⭐ เพิ่มบรรทัดนี้
+     let searchDebounceTimer = null; // ⭐ เพิ่มบรรทัดนี้
     let dataLoaded = { items: false, priceStudy: false };
     let loadStartTime = Date.now();
     let lowStockData = [];
@@ -1233,115 +1313,132 @@ function debugPriceStudy() {
     let currentOrderNumber = '';
     let orderItems = [];
     let selectedItemsForOrder = new Set();
+   
     let currentSearchMode = 'zone';
+let currentDataMode = 'lowStock'; // ใหม่: โหมดข้อมูล (lowStock / allItems)
+let allItemsDataCache = []; // ใหม่: เก็บข้อมูลสินค้าทั้งหมด
 
     window.onload = function() {
         loadAllData();
     };
 
-    async function loadAllData() {
-        await Promise.all([
-            loadItemsData(),
-            loadPriceStudyData(),
-            loadStoreList()
-        ]);
-    }
-
-   async function loadItemsData() {
-    updateDataStatus('items', 'loading');
-    
-    return new Promise(function(resolve) {
+  async function loadAllData() {
+    await Promise.all([
+        loadItemsData(),
+        loadPriceStudyData(),
+        loadStoreList(),
+        loadPhoneNumberList()  // ⭐ เพิ่มบรรทัดนี้
+    ]);
+}
+async function loadPhoneNumberList() {
+    return new Promise((resolve) => {
         google.script.run
-            .withSuccessHandler(function(data) {
-                itemsData.clear();
-                
-                // เพิ่ม error handling
-                if (!data || !Array.isArray(data)) {
-                    console.error('Invalid data received from getItemsData');
+            .withSuccessHandler((phones) => {
+                phoneNumberList = phones;
+                console.log('Phone numbers loaded:', phoneNumberList.length);
+                resolve();
+            })
+            .withFailureHandler((error) => {
+                console.error('Error loading phone numbers:', error);
+                resolve();
+            })
+            .getPhoneNumberList();
+    });
+}
+
+    async function loadItemsData() {
+        updateDataStatus('items', 'loading');
+        
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    itemsData.clear();
+                    
+                    if (!data || !Array.isArray(data)) {
+                        console.error('Invalid data received from getItemsData');
+                        updateDataStatus('items', 'error');
+                        dataLoaded.items = true;
+                        checkAndInitialize();
+                        resolve();
+                        return;
+                    }
+                    
+                    data.forEach(function(item) {
+                        if (item.columnA) {
+                            itemsData.set(item.columnA.toString().trim(), item);
+                        }
+                    });
+                    
+                    updateDataStatus('items', 'success', itemsData.size);
+                    dataLoaded.items = true;
+                    checkAndInitialize();
+                    resolve();
+                })
+                .withFailureHandler(function(error) {
+                    console.error('Error in loadItemsData:', error);
                     updateDataStatus('items', 'error');
                     dataLoaded.items = true;
                     checkAndInitialize();
                     resolve();
-                    return;
-                }
-                
-                data.forEach(function(item) {
-                    if (item.columnA) {
-                        itemsData.set(item.columnA.toString().trim(), item);
-                    }
-                });
-                
-                updateDataStatus('items', 'success', itemsData.size);
-                dataLoaded.items = true;
-                checkAndInitialize();
-                resolve();
-            })
-            .withFailureHandler(function(error) {
-                console.error('Error in loadItemsData:', error);
-                updateDataStatus('items', 'error');
-                dataLoaded.items = true;
-                checkAndInitialize();
-                resolve();
-            })
-            .getItemsData();
-    });
-}
+                })
+                .getItemsData();
+        });
+    }
 
-  async function loadPriceStudyData() {
-    return new Promise(function(resolve) {
-        google.script.run
-            .withSuccessHandler(function(data) {
-                priceStudyData.clear();
-                
-                // แก้ไขให้รองรับทุกกรณี
-                if (!data) {
-                    console.warn('getPriceStudyData returned null or undefined');
-                    dataLoaded.priceStudy = true;
-                    checkAndInitialize();
-                    resolve();
-                    return;
-                }
-                
-                if (!Array.isArray(data)) {
-                    console.warn('getPriceStudyData did not return an array:', typeof data);
-                    dataLoaded.priceStudy = true;
-                    checkAndInitialize();
-                    resolve();
-                    return;
-                }
-                
-                if (data.length === 0) {
-                    console.warn('getPriceStudyData returned empty array');
-                    dataLoaded.priceStudy = true;
-                    checkAndInitialize();
-                    resolve();
-                    return;
-                }
-                
-                data.forEach(function(item) {
-                    if (item && item.columnB) {
-                        const key = item.columnB.toString().trim();
-                        if (!priceStudyData.has(key)) {
-                            priceStudyData.set(key, []);
-                        }
-                        priceStudyData.get(key).push(item);
+    async function loadPriceStudyData() {
+        return new Promise(function(resolve) {
+            google.script.run
+                .withSuccessHandler(function(data) {
+                    priceStudyData.clear();
+                    
+                    if (!data) {
+                        console.warn('getPriceStudyData returned null or undefined');
+                        dataLoaded.priceStudy = true;
+                        checkAndInitialize();
+                        resolve();
+                        return;
                     }
-                });
-                
-                console.log('Price study data loaded: ' + priceStudyData.size + ' items');
-                dataLoaded.priceStudy = true;
-                checkAndInitialize();
-                resolve();
-            })
-            .withFailureHandler(function(error) {
-                console.error('Error loading price study data:', error);
-                dataLoaded.priceStudy = true;
-                checkAndInitialize();
-                resolve();
-            })
-            .getPriceStudyData();
-    });
-}
+                    
+                    if (!Array.isArray(data)) {
+                        console.warn('getPriceStudyData did not return an array:', typeof data);
+                        dataLoaded.priceStudy = true;
+                        checkAndInitialize();
+                        resolve();
+                        return;
+                    }
+                    
+                    if (data.length === 0) {
+                        console.warn('getPriceStudyData returned empty array');
+                        dataLoaded.priceStudy = true;
+                        checkAndInitialize();
+                        resolve();
+                        return;
+                    }
+                    
+                    data.forEach(function(item) {
+                        if (item && item.columnB) {
+                            const key = item.columnB.toString().trim();
+                            if (!priceStudyData.has(key)) {
+                                priceStudyData.set(key, []);
+                            }
+                            priceStudyData.get(key).push(item);
+                        }
+                    });
+                    
+                    console.log('Price study data loaded: ' + priceStudyData.size + ' items');
+                    dataLoaded.priceStudy = true;
+                    checkAndInitialize();
+                    resolve();
+                })
+                .withFailureHandler(function(error) {
+                    console.error('Error loading price study data:', error);
+                    dataLoaded.priceStudy = true;
+                    checkAndInitialize();
+                    resolve();
+                })
+                .getPriceStudyData();
+        });
+    }
 
     async function loadStoreList() {
         return new Promise((resolve) => {
@@ -1413,155 +1510,228 @@ function debugPriceStudy() {
         const alertButton = document.createElement('button');
         alertButton.id = 'lowStockAlertBtn';
         alertButton.className = 'low-stock-alert-btn';
-        alertButton.innerHTML = '🔔 ແຈ້ງເຕືອນສະຕັອກ <span class="stock-alert-badge" id="stockAlertBadge">0</span>';
+        alertButton.innerHTML = '🔔 ແຈ້ງເຕືອນສະຕັອກ & 🛒ສັ່ງຊື້ສິນຄ້າ <span class="stock-alert-badge" id="stockAlertBadge">0</span>';
         alertButton.onclick = showLowStockModal;
         document.body.appendChild(alertButton);
 
         createLowStockModal();
     }
 
-    function createLowStockModal() {
-        const modal = document.createElement('div');
-        modal.id = 'lowStockModal';
-        modal.className = 'low-stock-modal';
-        
-        const content = '<div class="low-stock-modal-content">' +
-            '<div class="low-stock-modal-header">' +
-            '<h2 class="low-stock-modal-title">🔔 ສິນຄ້າໃກ້ໜົດສະຕັອກ</h2>' +
-            '<button class="stock-close-btn" onclick="closeLowStockModal()">×</button>' +
-            '</div>' +
-            '<div class="search-options">' +
-            '<button class="search-option-btn active" onclick="setSearchMode(\'zone\')">📍 ເລືອກຕາມໂຊນ</button>' +
-            '<button class="search-option-btn" onclick="setSearchMode(\'scan\')">📷 ສະແກນບາໂຄດ</button>' +
-            '<button class="search-option-btn" onclick="setSearchMode(\'name\')">🔍 ຄົ້ນຫາຊື່</button>' +
-            '</div>' +
-            '<div id="searchInputContainer" class="search-input-container" style="display: none;">' +
-            '<input type="text" id="searchInput" class="search-input" placeholder="ປ້ອນບາໂຄດ ຫຼື ຊື່ສິນຄ້າ...">' +
-            '</div>' +
-            '<div id="lowStockContent"></div>' +
-            '<button id="confirmSelectionBtn" class="confirm-selection-btn" style="display: none;" onclick="confirmItemSelection()">✅ ຢືນຢັນການເລືອກ</button>' +
-            '</div>';
-        
-        modal.innerHTML = content;
-        document.body.appendChild(modal);
-        lowStockModal = modal;
-
-        modal.addEventListener('click', function(e) {
-            if (e.target === modal) closeLowStockModal();
-        });
-        
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) {
-            searchInput.addEventListener('input', handleSearch);
-        }
+function createLowStockModal() {
+    const modal = document.createElement('div');
+    modal.id = 'lowStockModal';
+    modal.className = 'low-stock-modal';
+    
+    const content = '<div class="low-stock-modal-content">' +
+        '<div class="low-stock-modal-header">' +
+        '<h2 class="low-stock-modal-title">🔔 ລະບົບຄົ້ນຫາສິນຄ້າ</h2>' +
+        '<button class="stock-close-btn" onclick="closeLowStockModal()">×</button>' +
+        '</div>' +
+        // ⭐ ส่วนนี้สำคัญ - ตรวจสอบว่ามี class="data-mode-options"
+        '<div class="data-mode-options">' +
+        '<button class="data-mode-btn mode-all-items active" onclick="setDataMode(\'allItems\')">📦 ສິນຄ້າທັງໝົດ</button>' +
+        '<button class="data-mode-btn mode-low-stock" onclick="setDataMode(\'lowStock\')">🔴 ສິນຄ້າໃກ້ໜົດ</button>' +
+        '</div>' +
+        '<div class="search-options">' +
+        '<button class="search-option-btn active" onclick="setSearchMode(\'zone\')">📍 ເລືອກຕາມໂຊນ</button>' +
+        '<button class="search-option-btn" onclick="setSearchMode(\'scan\')">📷 ສະແກນບາໂຄດ</button>' +
+        '<button class="search-option-btn" onclick="setSearchMode(\'name\')">🔍 ຄົ້ນຫາຊື່</button>' +
+        '</div>' +
+        '<div id="searchInputContainer" class="search-input-container" style="display: none;">' +
+        '<input type="text" id="searchInput" class="search-input" placeholder="ປ້ອນບາໂຄດ ຫຼື ຊື່ສິນຄ້າ...">' +
+        '</div>' +
+        '<div id="lowStockContent"></div>' +
+        '<button id="confirmSelectionBtn" class="confirm-selection-btn" style="display: none;" onclick="confirmItemSelection()">✅ ຢືນຢັນການເລືອກ</button>' +
+        '</div>';
+    
+    modal.innerHTML = content;
+    document.body.appendChild(modal);
+    lowStockModal = modal;
+    
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', handleSearch);
     }
-
-    function setSearchMode(mode) {
-        currentSearchMode = mode;
-        
-        document.querySelectorAll('.search-option-btn').forEach(function(btn) {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
-        
-        const searchContainer = document.getElementById('searchInputContainer');
-        const searchInput = document.getElementById('searchInput');
-        const confirmBtn = document.getElementById('confirmSelectionBtn');
-        
-        if (mode === 'zone') {
-            searchContainer.style.display = 'none';
-            confirmBtn.style.display = 'none';
-            displayZoneView();
-        } else {
-            searchContainer.style.display = 'block';
-            confirmBtn.style.display = 'block';
-            searchInput.value = '';
-            searchInput.placeholder = mode === 'scan' ? 'ປ້ອນບາໂຄດ...' : 'ປ້ອນຊື່ສິນຄ້າ...';
-            searchInput.focus();
-            document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
-        }
+}
+function setSearchMode(mode) {
+    currentSearchMode = mode;
+    
+    document.querySelectorAll('.search-option-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    const searchContainer = document.getElementById('searchInputContainer');
+    const searchInput = document.getElementById('searchInput');
+    const confirmBtn = document.getElementById('confirmSelectionBtn');
+    
+    if (mode === 'zone') {
+        searchContainer.style.display = 'none';
+        confirmBtn.style.display = 'block';
+        displayZoneView();
+    } else {
+        searchContainer.style.display = 'block';
+        confirmBtn.style.display = 'block';
+        searchInput.value = '';
+        searchInput.placeholder = mode === 'scan' ? 'ປ້ອນບາໂຄດ...' : 'ປ້ອນຊື່ສິນຄ້າ...';
+        searchInput.focus();
+        document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
     }
+}
 
-    function handleSearch(e) {
-        const query = e.target.value.trim().toLowerCase();
+ /**
+ * ค้นหาสินค้า (แก้ไข: เพิ่ม Debounce + เร็วขึ้น + เพิ่มเข้าตารางอัตโนมัติ)
+ */
+function handleSearch(e) {
+    const query = e.target.value.trim().toLowerCase();
+    
+    // Clear timeout เดิม
+    if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+    }
+    
+    if (!query) {
+        document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
+        return;
+    }
+    
+    // แสดง Loading
+    document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #4facfe;">🔍 ກໍາລັງຄົ້ນຫາ...</p>';
+    
+    // Debounce: รอ 300ms ก่อนค้นหา
+    searchDebounceTimer = setTimeout(function() {
+        performSearch(query);
+    }, 300);
+}
+
+/**
+ * ทำการค้นหาจริง (ฟังก์ชันใหม่)
+ */
+function performSearch(query) {
+    const results = [];
+    const seenBarcodeBox = new Set();
+    const sourceData = currentDataMode === 'lowStock' ? itemsData : itemsData;
+    
+    // ค้นหาแบบเร็ว: Loop เดียว
+    sourceData.forEach(function(item, barcode) {
+        const stockRemaining = parseFloat(item.columnF) || 0;
+        const reorderPoint = parseFloat(item.columnD) || 0;
         
-        if (!query) {
-            document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
-            return;
-        }
+        const passStockCheck = currentDataMode === 'allItems' || 
+                              (stockRemaining < reorderPoint && reorderPoint > 0);
         
-        const results = [];
+        if (!passStockCheck) return;
+        
+        let matchFound = false;
         
         if (currentSearchMode === 'scan') {
-            itemsData.forEach(function(item, barcode) {
-                if (barcode.toLowerCase().includes(query)) {
-                    const stockRemaining = parseFloat(item.columnF) || 0;
-                    const reorderPoint = parseFloat(item.columnD) || 0;
-                    
-                    if (stockRemaining < reorderPoint && reorderPoint > 0) {
-                        const barcodeBox = item.columnJ || barcode;
-                        itemsData.forEach(function(relatedItem, relatedBarcode) {
-                            if ((relatedItem.columnJ || relatedBarcode) === barcodeBox) {
-                                const relatedStock = parseFloat(relatedItem.columnF) || 0;
-                                const relatedReorder = parseFloat(relatedItem.columnD) || 0;
-                                
-                                if (relatedStock < relatedReorder && relatedReorder > 0) {
-                                    results.push({
-                                        barcode: relatedBarcode,
-                                        barcodeBox: relatedItem.columnJ || relatedBarcode,
-                                        itemName: relatedItem.columnB || 'ບໍ່ມີຊື່',
-                                        reorderPoint: relatedReorder,
-                                        stockRemaining: relatedStock,
-                                        unit: relatedItem.columnH || 'ຊິ້ນ',
-                                        quantityPerUnit: parseFloat(relatedItem.columnI) || 1,
-                                        image: relatedItem.columnK || '',
-                                        zone: relatedItem.columnM || 'ບໍ່ລະບຸໂຊນ',
-                                        price: parseFloat(relatedItem.columnN) || 0
-                                    });
-                                }
-                            }
-                        });
-                    }
-                }
-            });
+            matchFound = barcode.toLowerCase().includes(query);
         } else if (currentSearchMode === 'name') {
-            itemsData.forEach(function(item, barcode) {
-                const itemName = (item.columnB || '').toLowerCase();
-                
-                if (itemName.includes(query)) {
-                    const stockRemaining = parseFloat(item.columnF) || 0;
-                    const reorderPoint = parseFloat(item.columnD) || 0;
-                    
-                    if (stockRemaining < reorderPoint && reorderPoint > 0) {
-                        const barcodeBox = item.columnJ || barcode;
-                        itemsData.forEach(function(relatedItem, relatedBarcode) {
-                            if ((relatedItem.columnJ || relatedBarcode) === barcodeBox) {
-                                const relatedStock = parseFloat(relatedItem.columnF) || 0;
-                                const relatedReorder = parseFloat(relatedItem.columnD) || 0;
-                                
-                                if (relatedStock < relatedReorder && relatedReorder > 0) {
-                                    results.push({
-                                        barcode: relatedBarcode,
-                                        barcodeBox: relatedItem.columnJ || relatedBarcode,
-                                        itemName: relatedItem.columnB || 'ບໍ່ມີຊື່',
-                                        reorderPoint: relatedReorder,
-                                        stockRemaining: relatedStock,
-                                        unit: relatedItem.columnH || 'ຊິ້ນ',
-                                        quantityPerUnit: parseFloat(relatedItem.columnI) || 1,
-                                        image: relatedItem.columnK || '',
-                                        zone: relatedItem.columnM || 'ບໍ່ລະບຸໂຊນ',
-                                        price: parseFloat(relatedItem.columnN) || 0
-                                    });
-                                }
-                            }
-                        });
-                    }
-                }
-            });
+            const itemName = (item.columnB || '').toLowerCase();
+            matchFound = itemName.includes(query);
         }
         
-        displaySearchResults(results);
+        if (matchFound) {
+            const barcodeBox = item.columnJ || barcode;
+            
+            // ถ้ายังไม่เคยเพิ่มกลุ่มนี้
+            if (!seenBarcodeBox.has(barcodeBox)) {
+                seenBarcodeBox.add(barcodeBox);
+                
+                // ดึงสินค้าทั้งหมดในกลุ่มเดียวกัน
+                sourceData.forEach(function(relatedItem, relatedBarcode) {
+                    const relatedBarcodeBox = relatedItem.columnJ || relatedBarcode;
+                    
+                    if (relatedBarcodeBox === barcodeBox) {
+                        const relatedStock = parseFloat(relatedItem.columnF) || 0;
+                        const relatedReorder = parseFloat(relatedItem.columnD) || 0;
+                        
+                        const relatedPassCheck = currentDataMode === 'allItems' || 
+                                                (relatedStock < relatedReorder && relatedReorder > 0);
+                        
+                        if (relatedPassCheck) {
+                            results.push({
+                                barcode: relatedBarcode,
+                                barcodeBox: relatedBarcodeBox,
+                                itemName: relatedItem.columnB || 'ບໍ່ມີຊື່',
+                                reorderPoint: relatedReorder,
+                                stockRemaining: relatedStock,
+                                unit: relatedItem.columnH || 'ຊິ້ນ',
+                                quantityPerUnit: parseFloat(relatedItem.columnI) || 1,
+                                image: relatedItem.columnK || '',
+                                zone: relatedItem.columnM || 'ບໍ່ລະບຸໂຊນ',
+                                price: parseFloat(relatedItem.columnN) || 0
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    });
+    
+    // แสดงผลลัพธ์
+    displaySearchResultsGrouped(results);
+    
+    // ⭐ สำหรับโหมดสแกน: ถ้าพบเพียง 1 กลุ่ม → เพิ่มเข้าตารางอัตโนมัติ
+    if (currentSearchMode === 'scan' && results.length > 0) {
+        const uniqueGroups = new Set(results.map(item => item.barcodeBox));
+        
+        if (uniqueGroups.size === 1) {
+            // พบเพียง 1 กลุ่ม → เพิ่มทันที
+            autoAddSearchResultsToOrder(results);
+            
+            // ล้างช่องค้นหา
+            document.getElementById('searchInput').value = '';
+            
+            // แสดงข้อความสำเร็จ
+            document.getElementById('lowStockContent').innerHTML = 
+                '<p style="text-align: center; color: #4caf50; font-size: 1.2rem; padding: 30px;">' +
+                '✅ ເພີ່ມ ' + results.length + ' ລາຍການສຳເລັດ!<br>' +
+                '<span style="font-size: 0.9rem; color: #666;">ສະແກນຕໍ່ໄດ້ເລີຍ</span>' +
+                '</p>';
+            
+            // ล้างข้อความหลัง 1.5 วินาที
+            setTimeout(function() {
+                document.getElementById('lowStockContent').innerHTML = 
+                    '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
+            }, 1500);
+        }
     }
+}
+
+/**
+ * เพิ่มสินค้าจากผลค้นหาเข้าตารางอัตโนมัติ (ฟังก์ชันใหม่)
+ */
+function autoAddSearchResultsToOrder(results) {
+    let addedCount = 0;
+    
+    results.forEach(function(item) {
+        // ตรวจสอบว่ายังไม่มีในตารางหลัก
+        const isInOrder = orderItems.some(function(orderItem) {
+            return orderItem.barcode === item.barcode;
+        });
+        
+        if (!isInOrder) {
+            const orderItem = {
+                barcode: item.barcode,
+                itemName: item.itemName,
+                unit: item.unit,
+                quantity: 1,
+                price: item.price,
+                image: item.image,
+                total: item.price
+            };
+            
+            orderItems.push(orderItem);
+            addedCount++;
+        }
+    });
+    
+    // อัพเดทตารางหลัก
+    if (addedCount > 0) {
+        updateOrderTable();
+    }
+}
 
     function displaySearchResults(results) {
         const content = document.getElementById('lowStockContent');
@@ -1587,8 +1757,8 @@ function debugPriceStudy() {
             const isSelected = selectedItemsForOrder.has(item.barcode);
             const quantity = isSelected ? getItemQuantityFromOrder(item.barcode) : 1;
             
-            html += '<div class="selectable-item ' + (isSelected ? 'selected' : '') + '" data-barcode="' + item.barcode + '">';
-            html += '<input type="checkbox" class="item-checkbox" ' + (isSelected ? 'checked' : '') + ' onchange="toggleItemSelection(\'' + item.barcode + '\')">';
+            html += '<div class="selectable-item ' + (isSelected ? 'selected' : '') + '" data-barcode="' + item.barcode + '" onclick="handleItemCardClick(event, \'' + item.barcode + '\')">';
+            html += '<input type="checkbox" class="item-checkbox" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation(); toggleItemSelection(\'' + item.barcode + '\')">';
             
             if (item.image) {
                 html += '<img src="' + item.image + '" class="item-image-small">';
@@ -1602,7 +1772,7 @@ function debugPriceStudy() {
             html += '</div>';
             html += '<div class="item-quantity-container">';
             html += '<span class="quantity-label">ຈຳນວນ:</span>';
-            html += '<input type="number" class="quantity-input" value="' + quantity + '" min="1" onchange="updateItemQuantity(\'' + item.barcode + '\', this.value)">';
+            html += '<input type="number" class="quantity-input" value="' + quantity + '" min="1" onclick="event.stopPropagation()" onchange="updateItemQuantity(\'' + item.barcode + '\', this.value)">';
             html += '</div>';
             html += '</div>';
         });
@@ -1611,95 +1781,59 @@ function debugPriceStudy() {
         content.innerHTML = html;
     }
 
-    function displayZoneView() {
-        if (!lowStockData || Object.keys(lowStockData).length === 0) {
-            checkLowStockAndShowAlert();
-        }
-        
-        const content = document.getElementById('lowStockContent');
-        
-        if (!lowStockData || Object.keys(lowStockData).length === 0) {
-            content.innerHTML = '<div class="stock-empty-state"><i>✅</i><h3>ບໍ່ມີສິນຄ້າໃກ້ໜົດສະຕັອກ</h3></div>';
+    function handleItemCardClick(event, barcode) {
+        if (event.target.classList.contains('quantity-input') || 
+            event.target.classList.contains('item-checkbox')) {
             return;
         }
-
-        const sortedZones = Object.entries(lowStockData).sort(function(a, b) {
-            return a[0].localeCompare(b[0]);
-        });
-
-        let html = '';
-        sortedZones.forEach(function(zoneEntry) {
-            const zoneName = zoneEntry[0];
-            const zoneData = zoneEntry[1];
-            const productCount = Object.keys(zoneData.products).length;
-            const zoneId = 'zone_' + zoneName.replace(/\W/g, '');
-
-            html += '<div class="zone-card" onclick="toggleZoneDetails(\'' + zoneId + '\')">';
-            html += '<div class="zone-card-header">';
-            html += '<div class="zone-name">📍 โซນ: ' + zoneName + '</div>';
-            html += '<div class="zone-count">' + productCount + ' ລາຍການ</div>';
-            html += '</div>';
-            html += '<div id="' + zoneId + '" class="zone-details">';
-            html += generateZoneDetailsHTMLWithSelection(zoneData);
-            html += '</div>';
-            html += '</div>';
-        });
-
-        content.innerHTML = html;
+        
+        toggleItemSelection(barcode);
     }
 
-    function generateZoneDetailsHTMLWithSelection(zoneData) {
-        let html = '';
-        let itemNumber = 1;
-        const icons = ['🟡', '🟠', '🔵', '🟢', '🟣', '🔴'];
-
-        Object.entries(zoneData.products).forEach(function(entry) {
-            const barcodeBox = entry[0];
-            const productGroup = entry[1];
-            
-            html += '<div class="product-group">';
-            html += '<div class="product-group-header">';
-            html += '<strong>' + itemNumber + '. ລະຫັດ: ' + barcodeBox + '</strong>';
-            html += '<div class="product-stock-info">';
-            html += '<span class="stock-alert-text">ແຈ້ງເຕືອນ ' + productGroup.reorderPoint + '</span>';
-            html += '<span class="stock-remain-text">ເຫຼືອສະຕັອກ ' + productGroup.stockRemaining + '</span>';
-            html += '</div>';
-            html += '</div>';
-
-            productGroup.items.forEach(function(item, index) {
-                let quantity = item.stockRemaining / item.quantityPerUnit;
-                quantity = quantity % 1 === 0 ? Math.round(quantity) : quantity.toFixed(2);
-                
-                const isSelected = selectedItemsForOrder.has(item.barcode);
-                const orderQty = isSelected ? getItemQuantityFromOrder(item.barcode) : 1;
-
-                html += '<div class="product-item selectable-item ' + (isSelected ? 'selected' : '') + '" data-barcode="' + item.barcode + '" onclick="event.stopPropagation()">';
-                html += '<input type="checkbox" class="item-checkbox" ' + (isSelected ? 'checked' : '') + ' onchange="toggleItemSelection(\'' + item.barcode + '\')">';
-                html += '<span class="product-icon">' + icons[index % icons.length] + '</span>';
-                
-                if (item.image) {
-                    html += '<img src="' + item.image + '" class="product-image">';
-                } else {
-                    html += '<div class="no-product-image">📷</div>';
-                }
-                
-                html += '<div class="product-info">';
-                html += '<div class="product-name">' + item.itemName + '</div>';
-                html += '<div class="product-details">ລະຫັດ: ' + item.barcode + ' | ຈໍານວນ: ' + quantity + ' ' + item.unit + '</div>';
-                html += '</div>';
-                html += '<div class="item-quantity-container">';
-                html += '<span class="quantity-label">ສັ່ງຊື້:</span>';
-                html += '<input type="number" class="quantity-input" value="' + orderQty + '" min="1" onclick="event.stopPropagation()" onchange="updateItemQuantity(\'' + item.barcode + '\', this.value)">';
-                html += '</div>';
-                html += '</div>';
-            });
-
-            html += '</div>';
-            itemNumber++;
-        });
-
-        return html;
+function displayZoneView() {
+    const dataSource = currentDataMode === 'lowStock' ? lowStockData : allItemsDataCache;
+    
+    if (currentDataMode === 'allItems' && Object.keys(allItemsDataCache).length === 0) {
+        loadAllItemsData();
     }
+    
+    const content = document.getElementById('lowStockContent');
+    
+    if (!dataSource || Object.keys(dataSource).length === 0) {
+        if (currentDataMode === 'lowStock') {
+            content.innerHTML = '<div class="stock-empty-state"><i>✅</i><h3>ບໍ່ມີສິນຄ້າໃກ້ໜົດສະຕັອກ</h3></div>';
+        } else {
+            content.innerHTML = '<div class="stock-empty-state"><i>📦</i><h3>ບໍ່ມີຂໍ້ມູນສິນຄ້າ</h3></div>';
+        }
+        return;
+    }
+
+    const sortedZones = Object.entries(dataSource).sort(function(a, b) {
+        return a[0].localeCompare(b[0]);
+    });
+
+    let html = '';
+    sortedZones.forEach(function(zoneEntry) {
+        const zoneName = zoneEntry[0];
+        const zoneData = zoneEntry[1];
+        const productCount = Object.keys(zoneData.products).length;
+        const zoneId = 'zone_' + zoneName.replace(/\W/g, '');
+
+        html += '<div class="zone-card" onclick="toggleZoneDetails(\'' + zoneId + '\')">';
+        html += '<div class="zone-card-header">';
+        html += '<div class="zone-name">📍 ໂຊນ: ' + zoneName + '</div>';
+        html += '<div class="zone-count">' + productCount + ' ກຸ່ມສິນຄ້າ</div>';
+        html += '</div>';
+        html += '<div id="' + zoneId + '" class="zone-details">';
+        html += generateZoneDetailsHTMLEnhanced(zoneData);
+        html += '</div>';
+        html += '</div>';
+    });
+
+    content.innerHTML = html;
+}
+
+   
 
     function toggleItemSelection(barcode) {
         const item = itemsData.get(barcode);
@@ -1711,14 +1845,21 @@ function debugPriceStudy() {
             selectedItemsForOrder.add(barcode);
         }
         
-        if (currentSearchMode === 'zone') {
-            displayZoneView();
-        } else {
-            const searchInput = document.getElementById('searchInput');
-            if (searchInput && searchInput.value) {
-                handleSearch({ target: searchInput });
+        const elements = document.querySelectorAll('[data-barcode="' + barcode + '"]');
+        elements.forEach(function(el) {
+            const checkbox = el.querySelector('.item-checkbox');
+            const isSelected = selectedItemsForOrder.has(barcode);
+            
+            if (checkbox) {
+                checkbox.checked = isSelected;
             }
-        }
+            
+            if (isSelected) {
+                el.classList.add('selected');
+            } else {
+                el.classList.remove('selected');
+            }
+        });
     }
 
     function updateItemQuantity(barcode, quantity) {
@@ -1743,45 +1884,91 @@ function debugPriceStudy() {
         return item ? item.quantity : 1;
     }
 
-    function confirmItemSelection() {
-        if (selectedItemsForOrder.size === 0) {
-            alert('ກະລຸນາເລືອກສິນຄ້າກ່ອນ');
-            return;
-        }
+  /**
+ * ยืนยันการเลือกสินค้า (แก้ไข: ไม่ปิด Modal)
+ */
+function confirmItemSelection() {
+    if (selectedItemsForOrder.size === 0) {
+        alert('ກະລຸນາເລືອກສິນຄ້າກ່ອນ');
+        return;
+    }
+    
+    let addedCount = 0;
+    
+    selectedItemsForOrder.forEach(function(barcode) {
+        const item = itemsData.get(barcode);
+        if (!item) return;
         
-        selectedItemsForOrder.forEach(function(barcode) {
-            const item = itemsData.get(barcode);
-            if (!item) return;
-            
-            const existingIndex = orderItems.findIndex(function(i) {
-                return i.barcode === barcode;
-            });
-            
-            const quantityInputs = document.querySelectorAll('[data-barcode="' + barcode + '"] .quantity-input');
-            const quantity = quantityInputs.length > 0 ? parseInt(quantityInputs[0].value) || 1 : 1;
-            
-            const orderItem = {
-                barcode: barcode,
-                itemName: item.columnB || 'ບໍ່ມີຊື່',
-                unit: item.columnH || 'ຊິ້ນ',
-                quantity: quantity,
-                price: parseFloat(item.columnN) || 0,
-                image: item.columnK || '',
-                total: quantity * (parseFloat(item.columnN) || 0)
-            };
-            
-            if (existingIndex >= 0) {
-                orderItems[existingIndex] = orderItem;
-            } else {
-                orderItems.push(orderItem);
-            }
+        const existingIndex = orderItems.findIndex(function(i) {
+            return i.barcode === barcode;
         });
         
-        updateOrderTable();
-        closeLowStockModal();
+        const quantityInputs = document.querySelectorAll('[data-barcode="' + barcode + '"] .quantity-input');
+        let quantity = 1;
         
-        alert('ເພີ່ມ ' + selectedItemsForOrder.size + ' ລາຍການລົງໃນຕາຕະລາງສຳເລັດ');
+        for (let i = 0; i < quantityInputs.length; i++) {
+            const val = parseInt(quantityInputs[i].value);
+            if (val && val > 0) {
+                quantity = val;
+                break;
+            }
+        }
+        
+        const orderItem = {
+            barcode: barcode,
+            itemName: item.columnB || 'ບໍ່ມີຊື່',
+            unit: item.columnH || 'ຊິ້ນ',
+            quantity: quantity,
+            price: parseFloat(item.columnN) || 0,
+            image: item.columnK || '',
+            total: quantity * (parseFloat(item.columnN) || 0)
+        };
+        
+        if (existingIndex >= 0) {
+            orderItems[existingIndex] = orderItem;
+        } else {
+            orderItems.push(orderItem);
+            addedCount++;
+        }
+    });
+    
+    // ล้างการเลือก
+    selectedItemsForOrder.clear();
+    
+    // อัพเดทตารางหลัก
+    updateOrderTable();
+    
+    // รีเฟรช Modal
+    if (currentSearchMode === 'zone') {
+        displayZoneView();
+    } else {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.value = '';
+            document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
+        }
     }
+    
+    // ⭐ ไม่ปิด Modal - ให้สแกนต่อได้
+    // closeLowStockModal(); // ลบบรรทัดนี้
+    
+    // แสดงข้อความสำเร็จ
+    if (addedCount > 0) {
+        // แสดงแบบชั่วคราว
+        const content = document.getElementById('lowStockContent');
+        const originalHTML = content.innerHTML;
+        
+        content.innerHTML = '<p style="text-align: center; color: #4caf50; font-size: 1.2rem; padding: 30px;">✅ ເພີ່ມ ' + addedCount + ' ລາຍການສຳເລັດ!</p>';
+        
+        setTimeout(function() {
+            if (currentSearchMode === 'zone') {
+                displayZoneView();
+            } else {
+                content.innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
+            }
+        }, 1500);
+    }
+}
 
     function checkLowStockAndShowAlert() {
         if (!itemsData || itemsData.size === 0) return;
@@ -1851,25 +2038,52 @@ function debugPriceStudy() {
         return grouped;
     }
 
-    function showLowStockModal() {
-        if (!lowStockModal) return;
-        
-        currentSearchMode = 'zone';
-        document.querySelectorAll('.search-option-btn').forEach(function(btn) {
-            btn.classList.remove('active');
-        });
-        document.querySelectorAll('.search-option-btn')[0].classList.add('active');
-        
-        document.getElementById('searchInputContainer').style.display = 'none';
-        document.getElementById('confirmSelectionBtn').style.display = 'none';
-        
-        displayZoneView();
-        lowStockModal.classList.add('show');
+/**
+ * แสดง Modal สินค้า (แก้ไข: เริ่มต้นที่โหมด "สินค้าทั้งหมด")
+ */
+function showLowStockModal() {
+    if (!lowStockModal) return;
+    
+    // ⭐ เปลี่ยนค่าเริ่มต้นเป็น "สินค้าทั้งหมด"
+    currentSearchMode = 'zone';
+    currentDataMode = 'allItems'; // ⭐ เปลี่ยนจาก 'lowStock' เป็น 'allItems'
+    
+    // รีเซ็ตปุ่มค้นหา
+    document.querySelectorAll('.search-option-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    document.querySelectorAll('.search-option-btn')[0].classList.add('active');
+    
+    // ⭐ รีเซ็ตปุ่มโหมดข้อมูล → เลือก "สินค้าทั้งหมด"
+    document.querySelectorAll('.data-mode-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    document.querySelector('.data-mode-btn.mode-all-items').classList.add('active');
+    
+    // ซ่อน input และแสดงปุ่มยืนยัน
+    document.getElementById('searchInputContainer').style.display = 'none';
+    document.getElementById('confirmSelectionBtn').style.display = 'block';
+    
+    // โหลดข้อมูลสินค้าทั้งหมด
+    if (Object.keys(allItemsDataCache).length === 0) {
+        loadAllItemsData();
     }
-
+    
+    // แสดง View
+    displayZoneView();
+    lowStockModal.classList.add('show');
+}
     function toggleZoneDetails(zoneId) {
         const element = document.getElementById(zoneId);
-        if (element) element.classList.toggle('show');
+        if (element) {
+            element.classList.toggle('show');
+            
+            if (element.classList.contains('show')) {
+                setTimeout(function() {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            }
+        }
     }
 
     function closeLowStockModal() {
@@ -1920,12 +2134,24 @@ function debugPriceStudy() {
         updateOrderTable();
     }
 
-    function deleteOrderItem(index) {
-        const item = orderItems[index];
-        selectedItemsForOrder.delete(item.barcode);
-        orderItems.splice(index, 1);
-        updateOrderTable();
+ function deleteOrderItem(index) {
+    const item = orderItems[index];
+    selectedItemsForOrder.delete(item.barcode);
+    orderItems.splice(index, 1);
+    updateOrderTable();
+    
+    // ถ้า Modal เปิดอยู่ ให้รีเฟรชเพื่อแสดงสินค้าที่ลบออกกลับมา
+    if (lowStockModal && lowStockModal.classList.contains('show')) {
+        if (currentSearchMode === 'zone') {
+            displayZoneView();
+        } else {
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput && searchInput.value.trim()) {
+                handleSearch({ target: searchInput });
+            }
+        }
     }
+}
 
     function updateOrderTotal() {
         const total = orderItems.reduce(function(sum, item) {
@@ -2021,172 +2247,843 @@ function debugPriceStudy() {
         if (modal) modal.remove();
     }
 
-    function generateComparisonTables(stores) {
-        const compareSection = document.getElementById('compareSection');
-        if (!compareSection) return;
-        
-        compareSection.style.display = 'block';
-        compareSection.innerHTML = '<h3 style="color: #ffa726; margin-bottom: 20px;">📊 ຕາຕະລາງປຽບທຽບລາຄາ</h3>';
-        
-        stores.forEach(function(storeName) {
-            const tableHtml = generateSingleComparisonTable(storeName);
-            compareSection.innerHTML += tableHtml;
-        });
+   function generateComparisonTables(stores) {
+    console.log('=== generateComparisonTables START ===');
+    console.log('Selected Stores:', stores);
+    
+    const compareSection = document.getElementById('compareSection');
+    if (!compareSection) {
+        console.error('❌ compareSection not found!');
+        return;
     }
+    
+    compareSection.style.display = 'block';
+    compareSection.innerHTML = '<h3 style="color: #ffa726; margin-bottom: 20px;">📊 ຕາຕະລາງປຽບທຽບລາຄາ</h3>';
+    
+    console.log('Order Items:', orderItems);
+    
+    stores.forEach(function(storeName) {
+        console.log('Generating table for store:', storeName);
+        const tableHtml = generateSingleComparisonTable(storeName);
+        compareSection.innerHTML += tableHtml;
+    });
+    
+    console.log('=== generateComparisonTables END ===');
+}
 
-    function generateSingleComparisonTable(storeName) {
-        let html = '<div class="compare-table-container">' +
-            '<div class="compare-table-header">🏪 ' + storeName + '</div>' +
-            '<div class="order-table-wrapper">' +
-            '<table class="order-table">' +
-            '<thead><tr>' +
-            '<th>ລຳດັບ</th><th>ລະຫັດ</th><th>ຮູບ</th><th>ຊື່ສິນຄ້າ</th>' +
-            '<th>ຫົວໜ່ວຍ</th><th>ຈຳນວນ</th><th>ລາຄາ/ໜ່ວຍ</th><th>ລວມເງິນ</th><th>ແຫຼ່ງຂໍ້ມູນ</th>' +
-            '</tr></thead><tbody>';
+/**
+ * สร้างตารางเปรียบเทียบราคาสำหรับร้านหนึ่ง (แก้ไข: Debug + แก้ปัญหาไม่แสดงข้อมูล)
+ */
+function generateSingleComparisonTable(storeName) {
+    console.log('=== generateSingleComparisonTable START ===');
+    console.log('Store Name:', storeName);
+    console.log('Order Items Count:', orderItems.length);
+    console.log('Items Data Size:', itemsData.size);
+    console.log('Price Study Data Size:', priceStudyData.size);
+    
+    let html = '<div class="compare-table-container">' +
+        '<div class="compare-table-header">🏪 ' + storeName + '</div>' +
+        '<div class="order-table-wrapper">' +
+        '<table class="order-table">' +
+        '<thead><tr>' +
+        '<th>ລຳດັບ</th><th>ລະຫັດ</th><th>ຮູບ</th><th>ຊື່ສິນຄ້າ</th>' +
+        '<th>ຫົວໜ່ວຍ</th><th>ຈຳນວນ</th><th>ລາຄາ/ໜ່ວຍ</th><th>ລວມເງິນ</th><th>ແຫຼ່ງຂໍ້ມູນ</th>' +
+        '</tr></thead><tbody>';
+    
+    let totalAmount = 0;
+    let rowsAdded = 0;
+    
+    // ⭐ Loop ผ่าน orderItems
+    for (let index = 0; index < orderItems.length; index++) {
+        const orderItem = orderItems[index];
         
-        let totalAmount = 0;
+        console.log('--- Processing item ' + (index + 1) + ' ---');
+        console.log('Barcode:', orderItem.barcode);
         
-        orderItems.forEach(function(orderItem, index) {
-            const priceStudyItems = priceStudyData.get(orderItem.barcode) || [];
-            const matchingItem = priceStudyItems.find(function(item) {
-                return (item.columnF || '').trim() === storeName.trim();
+        // ⭐ ดึงข้อมูลจาก itemsData
+        const mainItem = itemsData.get(orderItem.barcode);
+        
+        if (!mainItem) {
+            console.warn('❌ Item not found in itemsData:', orderItem.barcode);
+            continue; // ข้ามไปรายการถัดไป
+        }
+        
+        console.log('✅ Found in itemsData');
+        
+        // ⭐ ข้อมูลพื้นฐานจากตารางหลัก
+        const baseData = {
+            barcode: orderItem.barcode,
+            itemName: orderItem.itemName,
+            unit: orderItem.unit,
+            quantity: orderItem.quantity,
+            image: orderItem.image,
+            price: orderItem.price // ราคาจากตารางหลัก
+        };
+        
+        console.log('Base Data:', baseData);
+        
+        // ⭐ ค้นหาราคาจาก priceStudyData
+        const barcodeKey = orderItem.barcode.toString().trim();
+        const priceStudyItems = priceStudyData.get(barcodeKey) || [];
+        
+        console.log('Price Study Items for ' + barcodeKey + ':', priceStudyItems.length);
+        
+        let matchingItem = null;
+        let source = 'main-table';
+        let priceSource = 'ຕາຕະລາງຫຼັກ';
+        let finalPrice = baseData.price;
+        
+        // ⭐ ค้นหาร้านที่ตรงกัน
+        for (let i = 0; i < priceStudyItems.length; i++) {
+            const item = priceStudyItems[i];
+            const storeInData = (item.columnF || '').toString().trim();
+            const storeToFind = storeName.trim();
+            
+            console.log('Comparing: "' + storeInData + '" vs "' + storeToFind + '"');
+            
+            if (storeInData === storeToFind) {
+                matchingItem = item;
+                break;
+            }
+        }
+        
+        if (matchingItem) {
+            console.log('✅ Found matching store in Price Study');
+            finalPrice = parseFloat(matchingItem.columnH) || 0;
+            source = 'price-study';
+            priceSource = 'ສຶກສາລາຄາຕົ້ນທຶນ';
+        } else {
+            console.log('⚠️ Store not found, using main table price:', finalPrice);
+        }
+        
+        // ⭐ คำนวณยอดรวม
+        const itemTotal = baseData.quantity * finalPrice;
+        totalAmount += itemTotal;
+        
+        console.log('Final Price:', finalPrice);
+        console.log('Item Total:', itemTotal);
+        
+        // ⭐ สร้าง HTML สำหรับรูปภาพ
+        const imgHtml = baseData.image ? 
+            '<img src="' + baseData.image + '" class="order-table-img">' : 
+            '<div class="no-order-img">📷</div>';
+        
+        // ⭐ กำหนดสี Badge
+        const badgeClass = source === 'price-study' ? 'badge-price-study' : 'badge-main-table';
+        const rowStyle = source === 'main-table' ? ' style="background: #e3f2fd;"' : '';
+        
+        // ⭐ สร้าง HTML สำหรับแถว
+        html += '<tr' + rowStyle + '>';
+        html += '<td>' + (index + 1) + '</td>';
+        html += '<td>' + baseData.barcode + '</td>';
+        html += '<td>' + imgHtml + '</td>';
+        html += '<td>' + baseData.itemName + '</td>';
+        html += '<td>' + baseData.unit + '</td>';
+        html += '<td>' + baseData.quantity + '</td>';
+        html += '<td>' + (finalPrice > 0 ? finalPrice.toLocaleString() : '-') + '</td>';
+        html += '<td>' + (itemTotal > 0 ? itemTotal.toLocaleString() : '-') + '</td>';
+        html += '<td><span class="item-source-badge ' + badgeClass + '">' + priceSource + '</span></td>';
+        html += '</tr>';
+        
+        rowsAdded++;
+    }
+    
+    console.log('Total Rows Added:', rowsAdded);
+    console.log('Total Amount:', totalAmount);
+    console.log('=== generateSingleComparisonTable END ===');
+    
+    // ⭐ ปิด table และเพิ่มยอดรวม
+    html += '</tbody></table></div>' +
+        '<div class="order-footer">' +
+        '<div class="order-total">💰 ລວມທັງໝົດ: ' + totalAmount.toLocaleString() + ' ກີບ</div>' +
+        '</div></div>';
+    
+    return html;
+}
+
+ function saveAndPrint() {
+    if (orderItems.length === 0) {
+        alert('ກະລຸນາເພີ່ມສິນຄ້າລົງໃນຕາຕະລາງກ່ອນ');
+        return;
+    }
+    
+    // แสดง Modal เลือกซ่อนคอลัมน์ก่อน
+    showColumnSelectionModal();
+}
+/**
+ * แสดง Modal เลือกคอลัมน์ที่จะซ่อนก่อน Print
+ * ฟังก์ชันใหม่
+ */
+function showColumnSelectionModal() {
+    const modal = document.createElement('div');
+    modal.id = 'columnSelectionModal';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 500px;">' +
+        '<div class="store-selector-header">🖨️ ເລືອກຄໍລໍາທີ່ຕ້ອງການປິດບັງ</div>' +
+        '<div style="padding: 20px;">' +
+        '<p style="margin-bottom: 15px; color: #666;">ເລືອກຄໍລໍາທີ່ຕ້ອງການເຊື່ອງໃນການປຶມ:</p>' +
+        '<div class="column-checkbox-list">' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="index"> <span>ລຳດັບ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="barcode"> <span>ລະຫັດສິນຄ້າ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="image"> <span>ຮູບພາບ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="itemName"> <span>ຊື່ສິນຄ້າ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="quantity"> <span>ຈຳນວນ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="price"> <span>ລາຄາ/ໜ່ວຍ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="total"> <span>ລວມເງິນ</span>' +
+        '</label>' +
+        '</div>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeColumnSelectionModal()">ຍົກເລີກ</button>' +
+        '<button class="btn-confirm-stores" onclick="confirmColumnSelectionAndPrint()">✅ ຢືນຢັນ ແລະ ປຶມ</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeColumnSelectionModal();
+    });
+}
+/**
+ * ปิด Modal เลือกคอลัมน์
+ * ฟังก์ชันใหม่
+ */
+function closeColumnSelectionModal() {
+    const modal = document.getElementById('columnSelectionModal');
+    if (modal) modal.remove();
+}
+/**
+ * ยืนยันการเลือกคอลัมน์และเริ่ม Print
+ * ฟังก์ชันใหม่
+ */
+function confirmColumnSelectionAndPrint() {
+    // รับค่าคอลัมน์ที่เลือกจะซ่อน
+    const checkboxes = document.querySelectorAll('#columnSelectionModal input[type="checkbox"]:checked');
+    const hiddenColumns = [];
+    
+    checkboxes.forEach(function(checkbox) {
+        hiddenColumns.push(checkbox.value);
+    });
+    
+    closeColumnSelectionModal();
+    
+    // เรียกฟังก์ชัน Print พร้อมส่งข้อมูลคอลัมน์ที่จะซ่อน
+    executePrint(hiddenColumns);
+}
+/**
+ * ทำการ Print พร้อมซ่อนข้อมูลในคอลัมน์ตามที่เลือก (แก้ไข: ปิดหน้าต่าง + แสดง Modal ยืนยัน)
+ */
+function executePrint(hiddenColumns) {
+    const printWindow = window.open('', '_blank');
+    
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('lo-LA');
+    const timeStr = now.toLocaleTimeString('lo-LA');
+    const total = orderItems.reduce(function(sum, item) {
+        return sum + item.total;
+    }, 0);
+    
+    const hideIndex = hiddenColumns.includes('index');
+    const hideBarcode = hiddenColumns.includes('barcode');
+    const hideImage = hiddenColumns.includes('image');
+    const hideItemName = hiddenColumns.includes('itemName');
+    const hideQuantity = hiddenColumns.includes('quantity');
+    const hidePrice = hiddenColumns.includes('price');
+    const hideTotal = hiddenColumns.includes('total');
+    
+    let tableHeader = '<tr>' +
+        '<th style="width: 50px;">ລຳດັບ</th>' +
+        '<th style="width: 120px;">ລະຫັດສິນຄ້າ</th>' +
+        '<th style="width: 80px;">ຮູບ</th>' +
+        '<th>ຊື່ສິນຄ້າ</th>' +
+        '<th style="width: 100px;">ຈຳນວນ</th>' +
+        '<th style="width: 100px;">ລາຄາ/ໜ່ວຍ</th>' +
+        '<th style="width: 120px;">ລວມເງິນ</th>' +
+        '</tr>';
+    
+    let itemsRows = '';
+    orderItems.forEach(function(item, index) {
+        const imgTag = item.image ? 
+            '<img src="' + item.image + '" style="width: 60px; height: 60px; object-fit: cover; border-radius: 5px;">' : 
+            '<div style="width: 60px; height: 60px; background: #f0f0f0; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">📷</div>';
+        
+        itemsRows += '<tr>';
+        itemsRows += '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + (hideIndex ? '&nbsp;' : (index + 1)) + '</td>';
+        itemsRows += '<td style="padding: 10px; border: 1px solid #ddd;">' + (hideBarcode ? '&nbsp;' : item.barcode) + '</td>';
+        itemsRows += '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + (hideImage ? '&nbsp;' : imgTag) + '</td>';
+        itemsRows += '<td style="padding: 10px; border: 1px solid #ddd;">' + (hideItemName ? '&nbsp;' : item.itemName) + '</td>';
+        itemsRows += '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + (hideQuantity ? '&nbsp;' : (item.quantity + ' ' + item.unit)) + '</td>';
+        itemsRows += '<td style="text-align: right; padding: 10px; border: 1px solid #ddd;">' + (hidePrice ? '&nbsp;' : item.price.toLocaleString()) + '</td>';
+        itemsRows += '<td style="text-align: right; padding: 10px; border: 1px solid #ddd;">' + (hideTotal ? '&nbsp;' : item.total.toLocaleString()) + '</td>';
+        itemsRows += '</tr>';
+    });
+    
+    let totalRow = '<tr class="total-row">' +
+        '<td colspan="6" style="text-align: right; padding: 15px;">ລວມທັງໝົດ:</td>' +
+        '<td style="text-align: right; padding: 15px;">' + (hideTotal ? '&nbsp;' : (total.toLocaleString() + ' ກີບ')) + '</td>' +
+        '</tr>';
+    
+    const printContent = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ໃບສັ່ງຊື້ສິນຄ້າ - ' + currentOrderNumber + '</title><style>body { font-family: "Noto Sans Lao", Arial, sans-serif; padding: 20px; }.header { text-align: center; margin-bottom: 30px; }.header h1 { color: #4facfe; margin: 0; font-size: 2rem; }.info-section { margin-bottom: 20px; }.info-section p { margin: 5px 0; font-size: 1rem; }table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }thead { background: #2c3e50 !important; color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }th { padding: 12px; border: 1px solid #ddd; font-weight: bold; color: white !important; background: #2c3e50 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }td { padding: 10px; border: 1px solid #ddd; }tbody tr:nth-child(even) { background: #f9f9f9; }.total-row { background: #f0f0f0; font-weight: bold; font-size: 1.2em; }.signature-section { margin-top: 50px; display: flex; justify-content: space-around; }.signature-box { text-align: center; }.signature-line { margin-top: 50px; border-top: 1px solid #333; padding-top: 5px; }@media print { body { padding: 10px; }thead { background: #2c3e50 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }th { background: #2c3e50 !important; color: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }}</style></head><body><div class="header"><h1>🏢 ໃບສັ່ງຊື້ສິນຄ້າ</h1></div><div class="info-section"><p><strong>ເລກທີໃບສັ່ງຊື້:</strong> ' + currentOrderNumber + '</p><p><strong>ວັນທີ:</strong> ' + dateStr + ' ' + timeStr + '</p></div><table><thead>' + tableHeader + '</thead><tbody>' + itemsRows + totalRow + '</tbody></table><div class="signature-section"><div class="signature-box"><p>ລາຍເຊັນຜູ້ສັ່ງຊື້</p><div class="signature-line">_________________</div></div><div class="signature-box"><p>ລາຍເຊັນຜູ້ອະນຸມັດ</p><div class="signature-line">_________________</div></div></div><script>setTimeout(function() { window.print(); }, 500);<\/script></body></html>';
+    
+    printWindow.document.open();
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    // รอ 2.5 วินาที แล้วปิดหน้าต่างและแสดง Modal ยืนยัน
+    setTimeout(function() {
+        // ปิดหน้าต่าง Print
+        try {
+            printWindow.close();
+        } catch(e) {
+            console.log('Cannot close print window:', e);
+        }
+        
+        // แสดง Modal ยืนยันการบันทึก
+        showPrintConfirmationModal();
+    }, 2500);
+}
+
+function saveAndWhatsapp() {
+    if (orderItems.length === 0) {
+        alert('ກະລຸນາເພີ່ມສິນຄ້າລົງໃນຕາຕະລາງກ່ອນ');
+        return;
+    }
+    
+    // แสดง Modal เลือกซ่อนคอลัมน์ก่อน (เหมือนกับ Print)
+    showColumnSelectionModalForWhatsApp();
+}
+/**
+ * แสดง Modal เลือกคอลัมน์ที่จะซ่อนก่อนส่ง WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function showColumnSelectionModalForWhatsApp() {
+    const modal = document.createElement('div');
+    modal.id = 'columnSelectionModalWhatsApp';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 500px;">' +
+        '<div class="store-selector-header">📱 ເລືອກຄໍລໍາທີ່ຕ້ອງການປິດບັງ (WhatsApp)</div>' +
+        '<div style="padding: 20px;">' +
+        '<p style="margin-bottom: 15px; color: #666;">ເລືອກຄໍລໍາທີ່ຕ້ອງການເຊື່ອງໃນການສົ່ງ WhatsApp:</p>' +
+        '<div class="column-checkbox-list">' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="index"> <span>ລຳດັບ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="barcode"> <span>ລະຫັດສິນຄ້າ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="image"> <span>ຮູບພາບ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="itemName"> <span>ຊື່ສິນຄ້າ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="quantity"> <span>ຈຳນວນ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="price"> <span>ລາຄາ/ໜ່ວຍ</span>' +
+        '</label>' +
+        '<label class="column-checkbox-item">' +
+        '<input type="checkbox" value="total"> <span>ລວມເງິນ</span>' +
+        '</label>' +
+        '</div>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeColumnSelectionModalForWhatsApp()">ຍົກເລີກ</button>' +
+        '<button class="btn-confirm-stores" onclick="confirmColumnSelectionForWhatsApp()">✅ ຢືນຢັນ ແລະ ສົ່ງ WhatsApp</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeColumnSelectionModalForWhatsApp();
+    });
+}
+/**
+ * ปิด Modal เลือกคอลัมน์สำหรับ WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function closeColumnSelectionModalForWhatsApp() {
+    const modal = document.getElementById('columnSelectionModalWhatsApp');
+    if (modal) modal.remove();
+}
+/**
+ * ยืนยันการเลือกคอลัมน์และแสดง Modal กรอกเบอร์โทร
+ * ฟังก์ชันใหม่
+ */
+function confirmColumnSelectionForWhatsApp() {
+    // รับค่าคอลัมน์ที่เลือกจะซ่อน
+    const checkboxes = document.querySelectorAll('#columnSelectionModalWhatsApp input[type="checkbox"]:checked');
+    const hiddenColumns = [];
+    
+    checkboxes.forEach(function(checkbox) {
+        hiddenColumns.push(checkbox.value);
+    });
+    
+    closeColumnSelectionModalForWhatsApp();
+    
+    // แสดง Modal กรอกเบอร์โทร พร้อมส่งข้อมูลคอลัมน์ที่ซ่อน
+    showWhatsAppPhoneModalWithColumns(hiddenColumns);
+}
+/**
+ * แสดง Modal กรอกเบอร์โทรสำหรับ WhatsApp พร้อม Auto-Complete (แก้ไข: เพิ่ม Dropdown)
+ */
+function showWhatsAppPhoneModalWithColumns(hiddenColumns) {
+    const modal = document.createElement('div');
+    modal.id = 'whatsappPhoneModal';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 450px;">' +
+        '<div class="store-selector-header">📱 ກະລຸນາໃສ່ເບີໂທລະສັບ WhatsApp</div>' +
+        '<div style="margin: 20px 0; position: relative;">' +
+        '<div style="display: flex; gap: 10px; align-items: center;">' +
+        '<div style="background: #25d366; color: white; padding: 12px 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold;">+856</div>' +
+        '<input type="tel" id="whatsappPhoneInput" class="store-search-input" placeholder="ພິມເບີ ຫຼື ຊື່ຮ້ານ..." maxlength="10" style="flex: 1; margin: 0;" autocomplete="off">' +
+        '</div>' +
+        '<div id="phoneDropdown" style="display: none; position: absolute; top: 100%; left: 50px; right: 0; background: white; border: 2px solid #25d366; border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 1000; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"></div>' +
+        '<div style="margin-top: 10px; font-size: 0.9rem; color: #666;">ຕົວຢ່າງ: 2055512345 (10 ຕົວເລກ)</div>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeWhatsAppPhoneModal()">ຍົກເລີກ</button>' +
+        '<button id="confirmWhatsAppBtn" class="btn-confirm-stores" onclick="confirmWhatsAppSendWithPDF()" disabled>ສົ່ງ WhatsApp</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    // เก็บข้อมูลคอลัมน์ที่ซ่อนไว้
+    modal.dataset.hiddenColumns = JSON.stringify(hiddenColumns);
+    
+    const phoneInput = document.getElementById('whatsappPhoneInput');
+    const phoneDropdown = document.getElementById('phoneDropdown');
+    const confirmBtn = document.getElementById('confirmWhatsAppBtn');
+    
+    // Focus ที่ช่องกรอกเบอร์
+    setTimeout(function() {
+        phoneInput.focus();
+    }, 100);
+    
+    // ฟังก์ชันกรองและแสดง Dropdown
+    function filterAndShowDropdown() {
+        const query = phoneInput.value.trim().toLowerCase();
+        
+        // ตรวจสอบความยาวและเปิดปุ่ม
+        validatePhoneNumber();
+        
+        if (!query) {
+            phoneDropdown.style.display = 'none';
+            return;
+        }
+        
+        // กรองข้อมูล
+        const filtered = phoneNumberList.filter(function(item) {
+            const phoneMatch = item.phone.includes(query);
+            const storeMatch = item.store.toLowerCase().includes(query);
+            return phoneMatch || storeMatch;
+        });
+        
+        if (filtered.length === 0) {
+            phoneDropdown.style.display = 'none';
+            return;
+        }
+        
+        // สร้าง HTML สำหรับ Dropdown
+        let dropdownHTML = '';
+        filtered.forEach(function(item) {
+            dropdownHTML += '<div class="phone-dropdown-item" data-phone="' + item.phone + '" style="padding: 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s;">' +
+                '<div style="font-weight: bold; color: #333;">' + item.store + '</div>' +
+                '<div style="font-size: 0.9rem; color: #666;">📞 ' + item.phone + '</div>' +
+                '</div>';
+        });
+        
+        phoneDropdown.innerHTML = dropdownHTML;
+        phoneDropdown.style.display = 'block';
+        
+        // เพิ่ม Event Listener สำหรับแต่ละรายการ
+        const items = phoneDropdown.querySelectorAll('.phone-dropdown-item');
+        items.forEach(function(item) {
+            item.addEventListener('mouseenter', function() {
+                this.style.background = '#e3f2fd';
             });
-            
-            let displayItem, source;
-            
-            if (matchingItem) {
-                displayItem = {
-                    barcode: matchingItem.columnB || orderItem.barcode,
-                    itemName: matchingItem.columnC || orderItem.itemName,
-                    unit: matchingItem.columnE || orderItem.unit,
-                    quantity: orderItem.quantity,
-                    price: parseFloat(matchingItem.columnH) || 0,
-                    image: matchingItem.columnL || orderItem.image
-                };
-                source = 'price-study';
+            item.addEventListener('mouseleave', function() {
+                this.style.background = 'white';
+            });
+            item.addEventListener('click', function() {
+                const selectedPhone = this.dataset.phone;
+                phoneInput.value = selectedPhone;
+                phoneDropdown.style.display = 'none';
+                validatePhoneNumber();
+                phoneInput.focus();
+            });
+        });
+    }
+    
+    // ฟังก์ชัน Validate เบอร์โทร
+    function validatePhoneNumber() {
+        const phone = phoneInput.value.trim();
+        const isValid = /^\d{10}$/.test(phone);
+        
+        if (isValid) {
+            confirmBtn.disabled = false;
+            confirmBtn.style.opacity = '1';
+            confirmBtn.style.cursor = 'pointer';
+            phoneInput.style.borderColor = '#25d366';
+        } else {
+            confirmBtn.disabled = true;
+            confirmBtn.style.opacity = '0.5';
+            confirmBtn.style.cursor = 'not-allowed';
+            phoneInput.style.borderColor = '#e0e0e0';
+        }
+    }
+    
+    // Event Listener สำหรับ Input
+    phoneInput.addEventListener('input', filterAndShowDropdown);
+    
+    // Event Listener สำหรับ Enter
+    phoneInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !confirmBtn.disabled) {
+            confirmWhatsAppSendWithPDF();
+        }
+    });
+    
+    // ปิด Dropdown เมื่อคลิกนอก Modal
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            closeWhatsAppPhoneModal();
+        }
+        if (!phoneDropdown.contains(e.target) && e.target !== phoneInput) {
+            phoneDropdown.style.display = 'none';
+        }
+    });
+}
+/**
+ * ยืนยันการส่ง WhatsApp พร้อมสร้าง PDF
+ * ฟังก์ชันใหม่
+ */
+function confirmWhatsAppSendWithPDF() {
+    const phoneInput = document.getElementById('whatsappPhoneInput');
+    const phoneNumber = phoneInput.value.trim();
+    
+    if (!phoneNumber) {
+        alert('ກະລຸນາໃສ່ເບີໂທລະສັບ');
+        phoneInput.focus();
+        return;
+    }
+    
+    if (!/^\d+$/.test(phoneNumber)) {
+        alert('ກະລຸນາໃສ່ເບີໂທລະສັບເປັນຕົວເລກເທົ່ານັ້ນ');
+        phoneInput.focus();
+        return;
+    }
+    
+    if (phoneNumber.length < 8 || phoneNumber.length > 10) {
+        alert('ເບີໂທລະສັບຕ້ອງມີ 8-10 ຕົວເລກ');
+        phoneInput.focus();
+        return;
+    }
+    
+    // ดึงข้อมูลคอลัมน์ที่ซ่อน
+    const modal = document.getElementById('whatsappPhoneModal');
+    const hiddenColumns = JSON.parse(modal.dataset.hiddenColumns || '[]');
+    
+    closeWhatsAppPhoneModal();
+    
+    const fullPhoneNumber = '856' + phoneNumber;
+    
+    // สร้างหน้า PDF และส่ง WhatsApp
+    generatePDFAndSendWhatsApp(fullPhoneNumber, hiddenColumns);
+}
+/**
+ * สร้าง PDF, อัปโหลดไป Drive, และส่งผ่าน WhatsApp (แก้ไข: ปิด about:blank อัตโนมัติ + แสดง Modal ยืนยัน)
+ */
+function generatePDFAndSendWhatsApp(phoneNumber, hiddenColumns) {
+    const pdfWindow = window.open('', 'pdfWindow');
+    
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('lo-LA');
+    const timeStr = now.toLocaleTimeString('lo-LA');
+    const total = orderItems.reduce(function(sum, item) {
+        return sum + item.total;
+    }, 0);
+    
+    // HTML สำหรับแสดงในหน้าต่าง (Loading)
+    const loadingContent = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ກຳລັງສ້າງ PDF...</title><style>body { font-family: "Noto Sans Lao", Arial, sans-serif; padding: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; }.container { background: white; border-radius: 20px; padding: 40px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 600px; }.loading-spinner { width: 80px; height: 80px; border: 6px solid #f3f3f3; border-top: 6px solid #25d366; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 30px; }@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }.loading-text { font-size: 1.5rem; font-weight: bold; color: #25d366; margin-bottom: 15px; }.loading-subtext { font-size: 1rem; color: #666; }.success-content { display: none; }.success-icon { font-size: 5rem; margin-bottom: 20px; }.success-title { font-size: 1.8rem; font-weight: bold; color: #4caf50; margin-bottom: 15px; }.pdf-info { background: #f0f0f0; padding: 15px; border-radius: 10px; margin: 20px 0; font-size: 0.95rem; color: #333; }.whatsapp-btn { display: inline-block; padding: 15px 40px; background: linear-gradient(135deg, #25d366 0%, #128c7e 100%); color: white; text-decoration: none; border-radius: 10px; font-size: 1.2rem; font-weight: bold; margin-top: 20px; transition: all 0.3s; box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4); cursor: pointer; border: none; }.whatsapp-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 211, 102, 0.6); }</style></head><body><div class="container"><div id="loadingContent"><div class="loading-spinner"></div><div class="loading-text">ກຳລັງສ້າງໄຟລ໌ PDF...</div><div class="loading-subtext">ກະລຸນາລໍຖ້າສັກຄູ່</div></div><div id="successContent" class="success-content"><div class="success-icon">✅</div><div class="success-title">ສ້າງ PDF ສຳເລັດ!</div><div class="pdf-info"><strong>ຊື່ໄຟລ໌:</strong> <span id="pdfFileName"></span><br><strong>ບ່ອນເກັບໄວ້:</strong> Google Drive</div><button id="whatsappBtn" class="whatsapp-btn">📱 ເປີດ WhatsApp Web ເພື່ອສົ່ງໄຟລ໌</button></div></div></body></html>';
+    
+    pdfWindow.document.open();
+    pdfWindow.document.write(loadingContent);
+    pdfWindow.document.close();
+    
+    // เตรียมข้อมูลสำหรับสร้าง PDF
+    const pdfData = {
+        orderNumber: currentOrderNumber,
+        date: dateStr + ' ' + timeStr,
+        items: orderItems.map(function(item) {
+            return {
+                barcode: hiddenColumns.includes('barcode') ? '' : item.barcode,
+                itemName: hiddenColumns.includes('itemName') ? '' : item.itemName,
+                unit: item.unit,
+                quantity: hiddenColumns.includes('quantity') ? '' : item.quantity,
+                price: hiddenColumns.includes('price') ? '' : item.price,
+                total: hiddenColumns.includes('total') ? '' : item.total,
+                image: hiddenColumns.includes('image') ? '' : item.image
+            };
+        }),
+        total: hiddenColumns.includes('total') ? '' : total
+    };
+    
+    // เรียก Google Apps Script เพื่ออัปโหลด PDF
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                const loadingDiv = pdfWindow.document.getElementById('loadingContent');
+                const successDiv = pdfWindow.document.getElementById('successContent');
+                const fileNameSpan = pdfWindow.document.getElementById('pdfFileName');
+                const whatsappBtn = pdfWindow.document.getElementById('whatsappBtn');
+                
+                if (loadingDiv) loadingDiv.style.display = 'none';
+                if (successDiv) successDiv.style.display = 'block';
+                if (fileNameSpan) fileNameSpan.textContent = result.fileName;
+                
+                const message = '📱 ໃບສັ່ງຊື້ສິນຄ້າ\n' +
+                    'ເລກທີ: ' + currentOrderNumber + '\n' +
+                    'ວັນທີ: ' + dateStr + ' ' + timeStr + '\n\n' +
+                    '📄 ເບິ່ງໄຟລ໌ PDF: ' + result.fileUrl;
+                
+                const whatsappUrl = 'https://web.whatsapp.com/send?phone=' + phoneNumber + '&text=' + encodeURIComponent(message);
+                
+                if (whatsappBtn) {
+                    whatsappBtn.onclick = function() {
+                        // เปิด WhatsApp Web ในแท็บใหม่
+                        window.open(whatsappUrl, '_blank');
+                        
+                        // ปิดหน้าต่าง about:blank ทันที
+                        setTimeout(function() {
+                            pdfWindow.close();
+                        }, 500);
+                        
+                        // แสดง Modal ยืนยันการส่งในหน้าหลัก
+                        setTimeout(function() {
+                            if (window.opener) {
+                                window.opener.showWhatsAppConfirmationModal();
+                            } else {
+                                showWhatsAppConfirmationModal();
+                            }
+                        }, 1000);
+                    };
+                }
             } else {
-                displayItem = {
-                    barcode: orderItem.barcode,
-                    itemName: orderItem.itemName,
-                    unit: orderItem.unit,
-                    quantity: orderItem.quantity,
-                    price: orderItem.price,
-                    image: orderItem.image
-                };
-                source = 'items';
+                alert('ເກີດຂໍ້ຜິດພາດໃນການສ້າງ PDF: ' + result.error);
+                pdfWindow.close();
             }
-            
-            const itemTotal = displayItem.quantity * displayItem.price;
-            totalAmount += itemTotal;
-            
-            const imgHtml = displayItem.image ? '<img src="' + displayItem.image + '" class="order-table-img">' : '<div class="no-order-img">📷</div>';
-            const badgeClass = source === 'items' ? 'badge-items' : 'badge-price-study';
-            const badgeText = source === 'items' ? 'Items' : 'ສຶກສາລາຄາ';
-            
-            html += '<tr>';
-            html += '<td>' + (index + 1) + '</td>';
-            html += '<td>' + displayItem.barcode + '</td>';
-            html += '<td>' + imgHtml + '</td>';
-            html += '<td>' + displayItem.itemName + '</td>';
-            html += '<td>' + displayItem.unit + '</td>';
-            html += '<td>' + displayItem.quantity + '</td>';
-            html += '<td>' + displayItem.price.toLocaleString() + '</td>';
-            html += '<td>' + itemTotal.toLocaleString() + '</td>';
-            html += '<td><span class="item-source-badge ' + badgeClass + '">' + badgeText + '</span></td>';
-            html += '</tr>';
-        });
-        
-        html += '</tbody></table></div>' +
-            '<div class="order-footer">' +
-            '<div class="order-total">💰 ລວມທັງໝົດ: ' + totalAmount.toLocaleString() + ' ກີບ</div>' +
-            '</div></div>';
-        
-        return html;
-    }
+        })
+        .withFailureHandler(function(error) {
+            alert('ເກີດຂໍ້ຜິດພາດ: ' + error.message);
+            pdfWindow.close();
+        })
+        .createPDFFromOrderData(pdfData);
+}
+/**
+ * แสดง Modal ยืนยันการบันทึกหลังส่ง WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function showWhatsAppConfirmationModal() {
+    const modal = document.createElement('div');
+    modal.id = 'whatsappConfirmModal';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 450px;">' +
+        '<div class="store-selector-header">✅ ຢືນຢັນການບັນທຶກ</div>' +
+        '<div style="padding: 20px; text-align: center;">' +
+        '<p style="font-size: 1.1rem; margin-bottom: 20px;">ສົ່ງ WhatsApp ສຳເລັດແລ້ວບໍ?</p>' +
+        '<p style="font-size: 0.95rem; color: #666;">ກົດຢືນຢັນເພື່ອບັນທຶກຂໍ້ມູນລົງໃນລະບົບ</p>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeWhatsAppConfirmationModal()">ຍົກເລີກ</button>' +
+        '<button class="btn-confirm-stores" onclick="confirmWhatsAppSave()">✅ ຢືນຢັນບັນທຶກ</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeWhatsAppConfirmationModal();
+    });
+}
+/**
+ * ปิด Modal ยืนยันการบันทึก WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function closeWhatsAppConfirmationModal() {
+    const modal = document.getElementById('whatsappConfirmModal');
+    if (modal) modal.remove();
+}
+/**
+ * ยืนยันการบันทึกหลังส่ง WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function confirmWhatsAppSave() {
+    closeWhatsAppConfirmationModal();
+    
+    showSavingAnimation();
+    
+    const isLoadedOrder = document.getElementById('currentOrderNumber').dataset.isLoaded === 'true';
+    
+    const orderData = {
+        orderNumber: currentOrderNumber,
+        items: orderItems,
+        method: 'WHATSAPP',
+        isUpdate: isLoadedOrder
+    };
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                showSuccessAnimation();
+                
+                setTimeout(function() {
+                    hideSavingAnimation();
+                    
+                    orderItems = [];
+                    selectedItemsForOrder.clear();
+                    updateOrderTable();
+                    
+                    const compareSection = document.getElementById('compareSection');
+                    if (compareSection) compareSection.style.display = 'none';
+                    
+                    currentOrderNumber = generateOrderNumber();
+                    const orderNumberElement = document.getElementById('currentOrderNumber');
+                    orderNumberElement.textContent = currentOrderNumber;
+                    orderNumberElement.dataset.isLoaded = 'false';
+                }, 2000);
+            } else {
+                hideSavingAnimation();
+                alert('ເກີດຂໍ້ຜິດພາດ: ' + result.error);
+            }
+        })
+        .withFailureHandler(function(error) {
+            hideSavingAnimation();
+            alert('ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ' + error.message);
+        })
+        .saveOrder(orderData);
+}
 
-    function saveAndPrint() {
-        if (orderItems.length === 0) {
-            alert('ກະລຸນາເພີ່ມສິນຄ້າລົງໃນຕາຕະລາງກ່ອນ');
-            return;
+/**
+ * แสดง Modal กรอกเบอร์โทรสำหรับ WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function showWhatsAppPhoneModal() {
+    const modal = document.createElement('div');
+    modal.id = 'whatsappPhoneModal';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 450px;">' +
+        '<div class="store-selector-header">📱 ກະລຸນາໃສ່ເບີໂທລະສັບ WhatsApp</div>' +
+        '<div style="margin: 20px 0;">' +
+        '<div style="display: flex; gap: 10px; align-items: center;">' +
+        '<div style="background: #25d366; color: white; padding: 12px 15px; border-radius: 8px; font-size: 1.1rem; font-weight: bold;">+856</div>' +
+        '<input type="tel" id="whatsappPhoneInput" class="store-search-input" placeholder="20 XXXX XXXX" maxlength="10" style="flex: 1; margin: 0;">' +
+        '</div>' +
+        '<div style="margin-top: 10px; font-size: 0.9rem; color: #666;">ຕົວຢ່າງ: 2055512345 (ບໍ່ຕ້ອງໃສ່ 856)</div>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeWhatsAppPhoneModal()">ຍົກເລີກ</button>' +
+        '<button class="btn-confirm-stores" onclick="confirmWhatsAppSend()">ສົ່ງ WhatsApp</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    // Focus ที่ช่องกรอกเบอร์
+    setTimeout(function() {
+        document.getElementById('whatsappPhoneInput').focus();
+    }, 100);
+    
+    // รองรับการกด Enter
+    document.getElementById('whatsappPhoneInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            confirmWhatsAppSend();
         }
-        
-        const printDiv = document.createElement('div');
-        printDiv.style.display = 'none';
-        printDiv.id = 'printArea';
-        printDiv.className = 'print-area';
-        
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('lo-LA');
-        const total = orderItems.reduce(function(sum, item) {
-            return sum + item.total;
-        }, 0);
-        
-        let itemsRows = '';
-        orderItems.forEach(function(item, index) {
-            const imgTag = item.image ? '<img src="' + item.image + '" style="width: 50px; height: 50px; object-fit: cover;">' : '📷';
-            
-            itemsRows += '<tr>' +
-                '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + (index + 1) + '</td>' +
-                '<td style="padding: 10px; border: 1px solid #ddd;">' + item.barcode + '</td>' +
-                '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + imgTag + '</td>' +
-                '<td style="padding: 10px; border: 1px solid #ddd;">' + item.itemName + '</td>' +
-                '<td style="text-align: center; padding: 10px; border: 1px solid #ddd;">' + item.quantity + ' ' + item.unit + '</td>' +
-                '<td style="text-align: right; padding: 10px; border: 1px solid #ddd;">' + item.price.toLocaleString() + '</td>' +
-                '<td style="text-align: right; padding: 10px; border: 1px solid #ddd;">' + item.total.toLocaleString() + '</td>' +
-                '</tr>';
-        });
-        
-        printDiv.innerHTML = '<style>@media print { body * { visibility: hidden; } #printArea, #printArea * { visibility: visible; } #printArea { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; } }</style>' +
-            '<div style="font-family: \'Noto Sans Lao\', Arial, sans-serif;">' +
-            '<div style="text-align: center; margin-bottom: 30px;"><h1 style="color: #4facfe; margin: 0;">🏢 ໃບສັ່ງຊື້ສິນຄ້າ</h1></div>' +
-            '<div style="margin-bottom: 20px;"><p><strong>ເລກທີ:</strong> ' + currentOrderNumber + '</p><p><strong>ວັນທີ:</strong> ' + dateStr + '</p></div>' +
-            '<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">' +
-            '<thead><tr style="background: #4facfe; color: white;">' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ລຳດັບ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ລະຫັດສິນຄ້າ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ຮູບ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ຊື່ສິນຄ້າ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ຈຳນວນ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ລາຄາ/ໜ່ວຍ</th>' +
-            '<th style="padding: 12px; border: 1px solid #ddd;">ລວມເງິນ</th>' +
-            '</tr></thead><tbody>' + itemsRows +
-            '<tr style="background: #f0f0f0; font-weight: bold; font-size: 1.2em;">' +
-            '<td colspan="6" style="text-align: right; padding: 15px; border: 1px solid #ddd;">ລວມທັງໝົດ:</td>' +
-            '<td style="text-align: right; padding: 15px; border: 1px solid #ddd;">' + total.toLocaleString() + ' ກີບ</td>' +
-            '</tr></tbody></table>' +
-            '<div style="margin-top: 50px; display: flex; justify-content: space-around;">' +
-            '<div style="text-align: center;"><p>ລາຍເຊັນຜູ້ສັ່ງ</p><p style="margin-top: 50px;">_________________</p></div>' +
-            '<div style="text-align: center;"><p>ລາຍເຊັນຜູ້ອະນຸມັດ</p><p style="margin-top: 50px;">_________________</p></div>' +
-            '</div></div>';
-        
-        document.body.appendChild(printDiv);
-        window.print();
-        
-        setTimeout(function() {
-            printDiv.remove();
-            if (confirm('ປຶມສຳເລັດແລ້ວບໍ? ກົດຢືນຢັນເພື່ອບັນທຶກຂໍ້ມູນ')) {
-                saveOrderToSheet('PRINT');
-            }
-        }, 500);
+    });
+    
+    // ปิด Modal เมื่อคลิกนอก content
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeWhatsAppPhoneModal();
+    });
+}
+/**
+ * ปิด Modal กรอกเบอร์ WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function closeWhatsAppPhoneModal() {
+    const modal = document.getElementById('whatsappPhoneModal');
+    if (modal) modal.remove();
+}
+/**
+ * ยืนยันการส่ง WhatsApp
+ * ฟังก์ชันใหม่
+ */
+function confirmWhatsAppSend() {
+    const phoneInput = document.getElementById('whatsappPhoneInput');
+    const phoneNumber = phoneInput.value.trim();
+    
+    // ตรวจสอบเบอร์โทร
+    if (!phoneNumber) {
+        alert('ກະລຸນາໃສ່ເບີໂທລະສັບ');
+        phoneInput.focus();
+        return;
     }
-
-    function saveAndWhatsapp() {
-        if (orderItems.length === 0) {
-            alert('ກະລຸນາເພີ່ມສິນຄ້າລົງໃນຕາຕະລາງກ່ອນ');
-            return;
+    
+    // ตรวจสอบว่าเป็นตัวเลขเท่านั้น
+    if (!/^\d+$/.test(phoneNumber)) {
+        alert('ກະລຸນາໃສ່ເບີໂທລະສັບເປັນຕົວເລກເທົ່ານັ້ນ');
+        phoneInput.focus();
+        return;
+    }
+    
+    // ตรวจสอบความยาว (8-10 หลัก)
+    if (phoneNumber.length < 8 || phoneNumber.length > 10) {
+        alert('ເບີໂທລະສັບຕ້ອງມີ 8-10 ຕົວເລກ');
+        phoneInput.focus();
+        return;
+    }
+    
+    // ปิด Modal
+    closeWhatsAppPhoneModal();
+    
+    // สร้างเบอร์เต็ม: 856 + เบอร์ที่กรอก
+    const fullPhoneNumber = '856' + phoneNumber;
+    
+    // สร้างข้อความ
+    const message = generateWhatsAppMessage();
+    const whatsappUrl = 'https://wa.me/' + fullPhoneNumber + '?text=' + encodeURIComponent(message);
+    
+    // เปิด WhatsApp
+    window.open(whatsappUrl, '_blank');
+    
+    // ถามว่าจะบันทึกหรือไม่
+    setTimeout(function() {
+        if (confirm('ສົ່ງ WhatsApp ສຳເລັດແລ້ວບໍ? ກົດຢືນຢັນເພື່ອບັນທຶກຂໍ້ມູນ')) {
+            saveOrderToSheet('WHATSAPP');
         }
-        
-        const message = generateWhatsAppMessage();
-        const whatsappUrl = 'https://wa.me/?text=' + encodeURIComponent(message);
-        
-        window.open(whatsappUrl, '_blank');
-        
-        setTimeout(function() {
-            if (confirm('ສົ່ງ WhatsApp ສຳເລັດແລ້ວບໍ? ກົດຢືນຢັນເພື່ອບັນທຶກຂໍ້ມູນ')) {
-                saveOrderToSheet('WHATSAPP');
-            }
-        }, 2000);
-    }
+    }, 2000);
+}
 
     function generateWhatsAppMessage() {
         const total = orderItems.reduce(function(sum, item) {
@@ -2213,17 +3110,553 @@ function debugPriceStudy() {
         return message;
     }
 
-    function saveOrderToSheet(method) {
-        const orderData = {
-            orderNumber: currentOrderNumber,
-            items: orderItems,
-            method: method
-        };
+  function saveOrderToSheet(method) {
+    if (orderItems.length === 0) {
+        alert('ກະລຸນາເພີ່ມສິນຄ້າລົງໃນຕາຕະລາງກ່ອນ');
+        return;
+    }
+    
+    // แสดง Saving Animation
+    showSavingAnimation();
+    
+    const isLoadedOrder = document.getElementById('currentOrderNumber').dataset.isLoaded === 'true';
+    
+    const orderData = {
+        orderNumber: currentOrderNumber,
+        items: orderItems,
+        method: method,
+        isUpdate: isLoadedOrder
+    };
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                // แสดง Success Animation
+                showSuccessAnimation();
+                
+                // รอ 2 วินาที แล้วเคลียร์ข้อมูล
+                setTimeout(function() {
+                    hideSavingAnimation();
+                    
+                    // ล้างข้อมูล
+                    orderItems = [];
+                    selectedItemsForOrder.clear();
+                    updateOrderTable();
+                    
+                    const compareSection = document.getElementById('compareSection');
+                    if (compareSection) compareSection.style.display = 'none';
+                    
+                    // สร้างเลขใหม่ทันที
+                    currentOrderNumber = generateOrderNumber();
+                    const orderNumberElement = document.getElementById('currentOrderNumber');
+                    orderNumberElement.textContent = currentOrderNumber;
+                    orderNumberElement.dataset.isLoaded = 'false';
+                }, 2000);
+            } else {
+                hideSavingAnimation();
+                alert('ເກີດຂໍ້ຜິດພາດ: ' + result.error);
+            }
+        })
+        .withFailureHandler(function(error) {
+            hideSavingAnimation();
+            alert('ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ' + error.message);
+        })
+        .saveOrder(orderData);
+}
+
+function showLoadOrderModal() {
+    // แสดง Loading
+    showLoadingOverlay('ກໍາລັງໂຫຼດລາຍການ...', 'ກະລຸນາລໍຖ້າສັກຄູ່');
+    
+    // โหลดรายการใบสั่งซื้อ
+    google.script.run
+        .withSuccessHandler(function(orderList) {
+            hideLoadingOverlay();
+            
+            if (!orderList || orderList.length === 0) {
+                alert('ບໍ່ມີໃບສັ່ງຊື້ເກົ່າ');
+                return;
+            }
+            
+            displayOrderSelectionModal(orderList);
+        })
+        .withFailureHandler(function(error) {
+            hideLoadingOverlay();
+            alert('ເກີດຂໍ້ຜິດພາດ: ' + error.message);
+        })
+        .getOrderList();
+}
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        if (lowStockModal && lowStockModal.classList.contains('show')) {
+            closeLowStockModal();
+        }
         
-        google.script.run
-            .withSuccessHandler(function(result) {
-                if (result.success) {
-                    alert('ບັນທຶກຂໍ້ມູນສຳເລັດ!');
+        const storeModal = document.getElementById('storeSelectorModal');
+        if (storeModal) {
+            closeStoreSelectorModal();
+        }
+    }
+});
+
+    /**
+ * ========================================
+ * ฟังก์ชันใหม่ - Copy ต่อท้ายก่อน window.onload
+ * ========================================
+ */
+
+/**
+ * เปลี่ยนโหมดข้อมูล (ใกล้หมด / ทั้งหมด)
+ */
+function setDataMode(mode) {
+    currentDataMode = mode;
+    
+    // อัพเดท UI ปุ่ม
+    document.querySelectorAll('.data-mode-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // รีเซ็ตการเลือก
+    selectedItemsForOrder.clear();
+    
+    // โหลดข้อมูลใหม่
+    if (mode === 'lowStock') {
+        checkLowStockAndShowAlert();
+    } else {
+        loadAllItemsData();
+    }
+    
+    // รีเฟรช view
+    if (currentSearchMode === 'zone') {
+        displayZoneView();
+    } else {
+        document.getElementById('lowStockContent').innerHTML = '<p style="text-align: center; color: #999;">ກະລຸນາປ້ອນຂໍ້ມູນເພື່ອຄົ້ນຫາ</p>';
+        document.getElementById('searchInput').value = '';
+    }
+}
+
+/**
+ * โหลดข้อมูลสินค้าทั้งหมด (ไม่มีเงื่อนไข)
+ */
+function loadAllItemsData() {
+    if (!itemsData || itemsData.size === 0) return;
+    
+    const allItems = [];
+    
+    itemsData.forEach(function(item) {
+        const stockRemaining = parseFloat(item.columnF) || 0;
+        const reorderPoint = parseFloat(item.columnD) || 0;
+        
+        // ดึงทั้งหมด ไม่เช็คเงื่อนไข
+        allItems.push({
+            barcode: item.columnA || '',
+            barcodeBox: item.columnJ || item.columnA || '',
+            itemName: item.columnB || 'ບໍ່ມີຊື່',
+            reorderPoint: reorderPoint,
+            stockRemaining: stockRemaining,
+            unit: item.columnH || 'ຊິ້ນ',
+            quantityPerUnit: parseFloat(item.columnI) || 1,
+            image: item.columnK || '',
+            zone: item.columnM || 'ບໍ່ລະບຸໂຊນ',
+            price: parseFloat(item.columnN) || 0
+        });
+    });
+    
+    allItemsDataCache = groupItemsByZone(allItems);
+}
+
+/**
+ * จัดกลุ่มสินค้าตามโซน
+ */
+function groupItemsByZone(items) {
+    const grouped = {};
+    
+    items.forEach(function(item) {
+        const zone = item.zone;
+        const barcodeBox = item.barcodeBox || item.barcode;
+        
+        if (!grouped[zone]) {
+            grouped[zone] = { zoneName: zone, products: {} };
+        }
+        
+        if (!grouped[zone].products[barcodeBox]) {
+            grouped[zone].products[barcodeBox] = {
+                barcodeBox: barcodeBox,
+                reorderPoint: item.reorderPoint,
+                stockRemaining: item.stockRemaining,
+                items: []
+            };
+        }
+        
+        grouped[zone].products[barcodeBox].items.push(item);
+    });
+    
+    return grouped;
+}
+
+/**
+ * คำนวณจำนวนพร้อมหน่วย
+ */
+function calculateQuantityWithUnit(value, quantityPerUnit, unit) {
+    if (!value || !quantityPerUnit || quantityPerUnit === 0) {
+        return '0 ' + unit;
+    }
+    
+    const result = value / quantityPerUnit;
+    const formatted = result % 1 === 0 ? result.toFixed(0) : result.toFixed(2);
+    
+    return formatted + ' ' + unit;
+}
+
+/**
+ * แสดงผลการค้นหาแบบจัดกลุ่ม
+ */
+function displaySearchResultsGrouped(results) {
+    const content = document.getElementById('lowStockContent');
+    
+    if (results.length === 0) {
+        content.innerHTML = '<p style="text-align: center; color: #999;">ບໍ່ພົບຂໍ້ມູນ</p>';
+        return;
+    }
+    
+    // จัดกลุ่มตาม barcodeBox
+    const grouped = {};
+    results.forEach(function(item) {
+        const key = item.barcodeBox;
+        if (!grouped[key]) {
+            grouped[key] = [];
+        }
+        grouped[key].push(item);
+    });
+    
+    let html = '<div class="search-results">';
+    const colors = ['color-1', 'color-2', 'color-3', 'color-4', 'color-5', 'color-6'];
+    
+    Object.keys(grouped).forEach(function(barcodeBox, groupIndex) {
+        const group = grouped[barcodeBox];
+        
+        html += '<div class="product-group">';
+        html += '<div class="product-group-header">';
+        html += '<strong>📦 ລະຫັດເຊື່ອມໂຍງ: ' + barcodeBox + '</strong>';
+        html += '</div>';
+        
+        group.forEach(function(item, itemIndex) {
+            // ตรวจสอบว่าสินค้าอยู่ในตารางหลักแล้วหรือยัง
+            const isInOrder = orderItems.some(function(orderItem) {
+                return orderItem.barcode === item.barcode;
+            });
+            
+            // ถ้าอยู่ในตารางแล้ว ให้ข้ามไม่แสดง
+            if (isInOrder) return;
+            
+            const isSelected = selectedItemsForOrder.has(item.barcode);
+            const quantity = isSelected ? getItemQuantityFromOrder(item.barcode) : 1;
+            const colorClass = colors[itemIndex % colors.length];
+            
+            const stockDisplay = calculateQuantityWithUnit(item.stockRemaining, item.quantityPerUnit, item.unit);
+            const reorderDisplay = calculateQuantityWithUnit(item.reorderPoint, item.quantityPerUnit, item.unit);
+            
+            html += '<div class="selectable-item ' + colorClass + ' ' + (isSelected ? 'selected' : '') + '" data-barcode="' + item.barcode + '" onclick="handleItemCardClick(event, \'' + item.barcode + '\')">';
+            html += '<input type="checkbox" class="item-checkbox" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation(); toggleItemSelection(\'' + item.barcode + '\')">';
+            
+            if (item.image) {
+                html += '<img src="' + item.image + '" class="item-image-small">';
+            } else {
+                html += '<div class="no-product-image">📷</div>';
+            }
+            
+            html += '<div class="item-info-block">';
+            html += '<div class="item-name-large">' + item.itemName + ' - ຫົວໜ່ວຍ: ' + item.unit + '</div>';
+            html += '<div class="item-details-extended">';
+            html += 'ລະຫັດ: ' + item.barcode + ' | ໂຊນ: ' + item.zone + '<br>';
+            html += 'ຈໍານວນຄົງເຫຼືອ: ' + stockDisplay + ' | ';
+            html += 'ຈໍານວນແຈ້ງເຕືອນ: ' + reorderDisplay;
+            html += '</div>';
+            html += '</div>';
+            
+            html += '<div class="item-quantity-container">';
+            html += '<span class="quantity-label">ຈຳນວນ:</span>';
+            html += '<input type="number" class="quantity-input" value="' + quantity + '" min="1" onclick="event.stopPropagation()" onchange="updateItemQuantity(\'' + item.barcode + '\', this.value)">';
+            html += '</div>';
+            html += '</div>';
+        });
+        
+        html += '</div>';
+    });
+    
+    html += '</div>';
+    content.innerHTML = html;
+}
+/**
+ * สร้าง HTML สำหรับรายละเอียดโซน (แบบปรับปรุง)
+ */
+function generateZoneDetailsHTMLEnhanced(zoneData) {
+    let html = '';
+    let itemNumber = 1;
+    const colors = ['color-1', 'color-2', 'color-3', 'color-4', 'color-5', 'color-6'];
+
+    Object.entries(zoneData.products).forEach(function(entry) {
+        const barcodeBox = entry[0];
+        const productGroup = entry[1];
+        
+        html += '<div class="product-group">';
+        html += '<div class="product-group-header">';
+        html += '<strong>' + itemNumber + '. ລະຫັດເຊື່ອມໂຍງ: ' + barcodeBox + '</strong>';
+        html += '</div>';
+
+        productGroup.items.forEach(function(item, index) {
+            // ตรวจสอบว่าสินค้าอยู่ในตารางหลักแล้วหรือยัง
+            const isInOrder = orderItems.some(function(orderItem) {
+                return orderItem.barcode === item.barcode;
+            });
+            
+            // ถ้าอยู่ในตารางแล้ว ให้ข้ามไม่แสดง
+            if (isInOrder) return;
+            
+            const isSelected = selectedItemsForOrder.has(item.barcode);
+            const orderQty = isSelected ? getItemQuantityFromOrder(item.barcode) : 1;
+            const colorClass = colors[index % colors.length];
+            
+            const stockDisplay = calculateQuantityWithUnit(item.stockRemaining, item.quantityPerUnit, item.unit);
+            const reorderDisplay = calculateQuantityWithUnit(item.reorderPoint, item.quantityPerUnit, item.unit);
+
+            html += '<div class="product-item selectable-item ' + colorClass + ' ' + (isSelected ? 'selected' : '') + '" data-barcode="' + item.barcode + '" onclick="event.stopPropagation()">';
+            html += '<input type="checkbox" class="item-checkbox" ' + (isSelected ? 'checked' : '') + ' onclick="event.stopPropagation(); toggleItemSelection(\'' + item.barcode + '\')">';
+            
+            if (item.image) {
+                html += '<img src="' + item.image + '" class="product-image">';
+            } else {
+                html += '<div class="no-product-image">📷</div>';
+            }
+            
+            html += '<div class="product-info">';
+            html += '<div class="product-name">' + item.itemName + ' - ຫົວໜ່ວຍ: ' + item.unit + '</div>';
+            html += '<div class="product-details">ລະຫັດ: ' + item.barcode + '</div>';
+            html += '<div class="product-stock-detail">';
+            html += 'ຈໍານວນຄົງເຫຼືອ: ' + stockDisplay + ' | ';
+            html += 'ຈໍານວນແຈ້ງເຕືອນ: ' + reorderDisplay;
+            html += '</div>';
+            html += '</div>';
+            
+            html += '<div class="item-quantity-container">';
+            html += '<span class="quantity-label">ສັ່ງຊື້:</span>';
+            html += '<input type="number" class="quantity-input" value="' + orderQty + '" min="1" onclick="event.stopPropagation()" onchange="updateItemQuantity(\'' + item.barcode + '\', this.value)">';
+            html += '</div>';
+            html += '</div>';
+        });
+
+        html += '</div>';
+        itemNumber++;
+    });
+
+    return html;
+}
+/**
+ * แสดง Modal เลือกใบสั่งซื้อ (Dropdown แบบ Autocomplete)
+ * ฟังก์ชันใหม่
+ */
+/**
+ * แสดง Modal เลือกใบสั่งซื้อ (แก้ไข: แสดงจำนวนรายการ)
+ */
+function displayOrderSelectionModal(orderList) {
+    const modal = document.createElement('div');
+    modal.id = 'orderSelectionModal';
+    modal.className = 'store-selector-modal show';
+    
+    let optionsHTML = '';
+    orderList.forEach(function(order) {
+        optionsHTML += '<div class="order-option-item" data-order="' + order.orderNumber + '" onclick="selectOrderFromList(\'' + order.orderNumber + '\')">' +
+            '<div class="order-display-text">' + order.date + ' - ' + order.orderNumber + '</div>' +
+            '<div class="order-item-count">' + order.itemCount + ' ລາຍການ</div>' +
+            '</div>';
+    });
+    
+    modal.innerHTML = '<div class="store-selector-content">' +
+        '<div class="store-selector-header">🔄 ເລືອກໃບສັ່ງຊື້ເກົ່າ</div>' +
+        '<input type="text" id="orderSearchInput" class="store-search-input" placeholder="ຄົ້ນຫາເລກທີ ຫຼື ວັນທີ..." onkeyup="filterOrderList()">' +
+        '<div class="store-list" id="orderListContainer">' + optionsHTML + '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closeOrderSelectionModal()">ຍົກເລີກ</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeOrderSelectionModal();
+    });
+}
+
+/**
+ * กรองรายการใบสั่งซื้อตามคำค้นหา
+ * ฟังก์ชันใหม่
+ */
+function filterOrderList() {
+    const input = document.getElementById('orderSearchInput');
+    const filter = input.value.toLowerCase();
+    const container = document.getElementById('orderListContainer');
+    const items = container.getElementsByClassName('order-option-item');
+    
+    for (let i = 0; i < items.length; i++) {
+        const text = items[i].textContent || items[i].innerText;
+        if (text.toLowerCase().indexOf(filter) > -1) {
+            items[i].style.display = '';
+        } else {
+            items[i].style.display = 'none';
+        }
+    }
+}
+/**
+ * เลือกใบสั่งซื้อจากรายการ
+ * ฟังก์ชันใหม่
+ */
+
+/**
+ * เลือกใบสั่งซื้อจากรายการ (แก้ไข: ลบ alert ออก)
+ */
+function selectOrderFromList(orderNumber) {
+    closeOrderSelectionModal();
+    
+    // แสดง Loading
+    showLoadingOverlay('ກໍາລັງດຶງຂໍ້ມູນ...', 'ກະລຸນາລໍຖ້າສັກຄູ່');
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            hideLoadingOverlay();
+            
+            if (result.success && result.items.length > 0) {
+                // เคลียร์ข้อมูลเก่า
+                orderItems = [];
+                selectedItemsForOrder.clear();
+                
+                // โหลดข้อมูลใหม่
+                orderItems = result.items;
+                
+                result.items.forEach(function(item) {
+                    selectedItemsForOrder.add(item.barcode);
+                });
+                
+                // ตั้งเลขที่ใบสั่งซื้อเป็นเลขเดิม
+                currentOrderNumber = orderNumber;
+                const orderNumberElement = document.getElementById('currentOrderNumber');
+                orderNumberElement.textContent = currentOrderNumber;
+                orderNumberElement.dataset.isLoaded = 'true'; // ตั้ง flag ว่าเป็นการโหลดใบเก่า
+                
+                updateOrderTable();
+                // ลบ alert ออก - แสดงข้อมูลในตารางเลย
+            } else {
+                alert('ບໍ່ພົບໃບສັ່ງຊື້ນີ້');
+            }
+        })
+        .withFailureHandler(function(error) {
+            hideLoadingOverlay();
+            alert('ເກີດຂໍ້ຜິດພາດ: ' + error.message);
+        })
+        .loadOrder(orderNumber);
+}
+/**
+ * ปิด Modal เลือกใบสั่งซื้อ
+ * ฟังก์ชันใหม่
+ */
+function closeOrderSelectionModal() {
+    const modal = document.getElementById('orderSelectionModal');
+    if (modal) modal.remove();
+}
+
+/**
+ * แสดง Loading Overlay
+ * ฟังก์ชันใหม่
+ */
+function showLoadingOverlay(mainText, subText) {
+    // ลบ overlay เก่าถ้ามี
+    const existingOverlay = document.getElementById('loadingOverlay');
+    if (existingOverlay) {
+        existingOverlay.remove();
+    }
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'loadingOverlay';
+    overlay.className = 'loading-overlay show';
+    
+    overlay.innerHTML = '<div class="loading-content">' +
+        '<div class="loading-spinner"></div>' +
+        '<div class="loading-text">' + mainText + '</div>' +
+        '<div class="loading-subtext">' + subText + '</div>' +
+        '</div>';
+    
+    document.body.appendChild(overlay);
+}
+/**
+ * ซ่อน Loading Overlay
+ * ฟังก์ชันใหม่
+ */
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+/**
+ * แสดง Modal ยืนยันการบันทึกหลัง Print
+ */
+function showPrintConfirmationModal() {
+    const modal = document.createElement('div');
+    modal.id = 'printConfirmModal';
+    modal.className = 'store-selector-modal show';
+    
+    modal.innerHTML = '<div class="store-selector-content" style="max-width: 450px;">' +
+        '<div class="store-selector-header">✅ ຢືນຢັນການບັນທຶກ</div>' +
+        '<div style="padding: 20px; text-align: center;">' +
+        '<p style="font-size: 1.1rem; margin-bottom: 20px;">ປຶມສຳເລັດແລ້ວບໍ?</p>' +
+        '<p style="font-size: 0.95rem; color: #666;">ກົດຢືນຢັນເພື່ອບັນທຶກຂໍ້ມູນລົງໃນລະບົບ</p>' +
+        '</div>' +
+        '<div class="store-selector-actions">' +
+        '<button class="btn-cancel-stores" onclick="closePrintConfirmationModal()">ຍົກເລີກ</button>' +
+        '<button class="btn-confirm-stores" onclick="confirmPrintSave()">✅ ຢືນຢັນບັນທຶກ</button>' +
+        '</div>' +
+        '</div>';
+    
+    document.body.appendChild(modal);
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closePrintConfirmationModal();
+    });
+}
+
+/**
+ * ปิด Modal ยืนยันการบันทึก
+ */
+function closePrintConfirmationModal() {
+    const modal = document.getElementById('printConfirmModal');
+    if (modal) modal.remove();
+}
+
+/**
+ * ยืนยันการบันทึกหลัง Print
+ */
+function confirmPrintSave() {
+    closePrintConfirmationModal();
+    
+    showSavingAnimation();
+    
+    const isLoadedOrder = document.getElementById('currentOrderNumber').dataset.isLoaded === 'true';
+    
+    const orderData = {
+        orderNumber: currentOrderNumber,
+        items: orderItems,
+        method: 'PRINT',
+        isUpdate: isLoadedOrder
+    };
+    
+    google.script.run
+        .withSuccessHandler(function(result) {
+            if (result.success) {
+                showSuccessAnimation();
+                
+                setTimeout(function() {
+                    hideSavingAnimation();
                     
                     orderItems = [];
                     selectedItemsForOrder.clear();
@@ -2233,55 +3666,89 @@ function debugPriceStudy() {
                     if (compareSection) compareSection.style.display = 'none';
                     
                     currentOrderNumber = generateOrderNumber();
-                    document.getElementById('currentOrderNumber').textContent = currentOrderNumber;
-                } else {
-                    alert('ເກີດຂໍ້ຜິດພາດ: ' + result.error);
-                }
-            })
-            .withFailureHandler(function(error) {
-                alert('ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ' + error.message);
-            })
-            .saveOrder(orderData);
-    }
-
-    function showLoadOrderModal() {
-        const orderNumber = prompt('ປ້ອນເລກທີໃບສັ່ງຊື້ທີ່ຕ້ອງການດຶງ:');
-        
-        if (!orderNumber) return;
-        
-        google.script.run
-            .withSuccessHandler(function(result) {
-                if (result.success && result.items.length > 0) {
-                    orderItems = result.items;
-                    
-                    result.items.forEach(function(item) {
-                        selectedItemsForOrder.add(item.barcode);
-                    });
-                    
-                    updateOrderTable();
-                    alert('ດຶງຂໍ້ມູນສຳເລັດ: ' + result.items.length + ' ລາຍການ');
-                } else {
-                    alert('ບໍ່ພົບໃບສັ່ງຊື້ນີ້');
-                }
-            })
-            .withFailureHandler(function(error) {
-                alert('ເກີດຂໍ້ຜິດພາດ: ' + error.message);
-            })
-            .loadOrder(orderNumber);
-    }
-
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            if (lowStockModal && lowStockModal.classList.contains('show')) {
-                closeLowStockModal();
+                    const orderNumberElement = document.getElementById('currentOrderNumber');
+                    orderNumberElement.textContent = currentOrderNumber;
+                    orderNumberElement.dataset.isLoaded = 'false';
+                }, 2000);
+            } else {
+                hideSavingAnimation();
+                alert('ເກີດຂໍ້ຜິດພາດ: ' + result.error);
             }
-            
-            const storeModal = document.getElementById('storeSelectorModal');
-            if (storeModal) {
-                closeStoreSelectorModal();
-            }
-        }
-    });
+        })
+        .withFailureHandler(function(error) {
+            hideSavingAnimation();
+            alert('ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ' + error.message);
+        })
+        .saveOrder(orderData);
+}
+
+
+/**
+ * ซ่อน Animation บันทึก
+ * ฟังก์ชันใหม่
+ */
+function hideSavingAnimation() {
+    const overlay = document.getElementById('savingAnimationOverlay');
+    if (overlay) {
+        overlay.classList.add('fade-out');
+        setTimeout(function() {
+            overlay.remove();
+        }, 300);
+    }
+}
+/**
+ * แสดง Animation บันทึกสำเร็จ
+ * ฟังก์ชันใหม่
+ */
+function showSuccessAnimation() {
+    const statusText = document.getElementById('savingStatusText');
+    const spinner = document.querySelector('.saving-spinner');
+    
+    if (statusText) {
+        statusText.innerHTML = '✅ ບັນທຶກສຳເລັດ!';
+        statusText.style.color = '#4caf50';
+    }
+    
+    if (spinner) {
+        spinner.innerHTML = '<div class="success-checkmark">✓</div>';
+        spinner.style.border = 'none';
+        spinner.style.animation = 'none';
+    }
+}
+/**
+ * แสดง Animation กำลังบันทึก
+ * ฟังก์ชันใหม่
+ */
+function showSavingAnimation() {
+    const existingOverlay = document.getElementById('savingAnimationOverlay');
+    if (existingOverlay) {
+        existingOverlay.remove();
+    }
+    
+    const overlay = document.createElement('div');
+    overlay.id = 'savingAnimationOverlay';
+    overlay.className = 'loading-overlay show';
+    
+    overlay.innerHTML = '<div class="saving-animation-content">' +
+        '<div class="saving-spinner"></div>' +
+        '<div id="savingStatusText" class="saving-text">ກໍາລັງບັນທຶກຂໍ້ມູນ...</div>' +
+        '<div class="saving-subtext">ກະລຸນາລໍຖ້າສັກຄູ່</div>' +
+        '</div>';
+    
+    document.body.appendChild(overlay);
+}
+
+// เพิ่มหลังบรรทัด: const barcodeKey = orderItem.barcode.toString().trim();
+
+console.log('Looking for barcode:', barcodeKey);
+console.log('Available keys in itemsData:');
+let count = 0;
+itemsData.forEach(function(item, key) {
+    if (count < 5) { // แสดง 5 อันแรก
+        console.log('  Key:', key);
+        count++;
+    }
+});
     </script>
 </body>
 </html>
