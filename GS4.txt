@@ -1,3 +1,4 @@
+
 /**
  * ระบบสแกนขายสินค้า - Google Apps Script Backend
  */
@@ -58,9 +59,8 @@ function getItemsData() {
     return [];
   }
 }
-
 /**
- * ดึงข้อมูลจากตาราง ສຶກສາລາຄາຕົ້ນທຶນ
+ * ดึงข้อมูลจากตาราง ສຶກສາລາຄາຕົ້ນທຶນ (แก้ไข: Debug แบบละเอียด)
  */
 function getPriceStudyData() {
   try {
@@ -68,34 +68,69 @@ function getPriceStudyData() {
     const sheet = ss.getSheetByName(PRICE_STUDY_SHEET);
    
     if (!sheet) {
-      Logger.log('Sheet "' + PRICE_STUDY_SHEET + '" not found - returning empty array');
+      Logger.log('❌ Sheet "' + PRICE_STUDY_SHEET + '" not found');
       return [];
     }
    
     const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    
+    Logger.log('📊 Sheet: ' + PRICE_STUDY_SHEET);
+    Logger.log('📏 Last Row: ' + lastRow);
+    Logger.log('📏 Last Column: ' + lastCol);
+    
     if (lastRow <= 1) {
-      Logger.log('Sheet "' + PRICE_STUDY_SHEET + '" has no data - returning empty array');
+      Logger.log('⚠️ No data rows found');
       return [];
     }
     
-    const data = sheet.getDataRange().getValues();
+    // ดึงข้อมูลทั้งหมด
+    const data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
     const headers = data[0];
+    
+    Logger.log('📋 Headers: ' + JSON.stringify(headers));
+    
     const rows = data.slice(1);
-   
     const result = [];
+    
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      const item = {};
-      for (let j = 0; j < headers.length; j++) {
-        item['column' + String.fromCharCode(65 + j)] = row[j] || '';
+      
+      // ตรวจสอบว่า Column B (index 1) มีค่าหรือไม่
+      if (!row[1] || row[1].toString().trim() === '') {
+        continue; // ข้ามแถวว่าง
       }
+      
+      const item = {
+        columnA: row[0] ? row[0].toString().trim() : '',
+        columnB: row[1] ? row[1].toString().trim() : '', // Barcode (KEY)
+        columnC: row[2] ? row[2].toString().trim() : '',
+        columnD: row[3] ? row[3].toString().trim() : '',
+        columnE: row[4] ? row[4].toString().trim() : '',
+        columnF: row[5] ? row[5].toString().trim() : '', // ชื่อร้าน
+        columnG: row[6] ? row[6].toString() : '',
+        columnH: row[7] ? parseFloat(row[7]) : 0,        // ราคา
+        columnI: row[8] ? row[8].toString() : '',
+        columnJ: row[9] ? row[9].toString() : ''
+      };
+      
       result.push(item);
+      
+      // แสดงตัวอย่าง 3 แถวแรก
+      if (i < 3) {
+        Logger.log('Sample Row ' + (i + 1) + ':');
+        Logger.log('  Barcode (B): ' + item.columnB);
+        Logger.log('  Store (F): ' + item.columnF);
+        Logger.log('  Price (H): ' + item.columnH);
+      }
     }
     
-    Logger.log('getPriceStudyData returning ' + result.length + ' items');
+    Logger.log('✅ Total items loaded: ' + result.length);
     return result;
+    
   } catch (error) {
-    Logger.log('Error getting price study data: ' + error.toString());
+    Logger.log('❌ Error: ' + error.toString());
+    Logger.log('Stack: ' + error.stack);
     return [];
   }
 }
@@ -230,15 +265,15 @@ function loadOrder(orderNumber) {
         const barcode = row[2];
         const image = itemsImageMap[barcode.toString().trim()] || ''; // ดึงรูปจาก Items sheet
         
-        orderItems.push({
-          barcode: barcode,
-          itemName: row[3],
-          unit: row[4],
-          quantity: row[5],
-          price: row[6],
-          total: row[7],
-          image: image // เพิ่มรูปภาพ
-        });
+       orderItems.push({
+    barcode: barcode || '',
+    itemName: row[3] || 'ບໍ່ມີຊື່',
+    unit: row[4] || 'ຊິ້ນ',
+    quantity: parseFloat(row[5]) || 0,
+    price: parseFloat(row[6]) || 0,
+    total: parseFloat(row[7]) || 0,
+    image: image || ''
+});
       }
     }
     
@@ -460,14 +495,14 @@ function createPDFFromOrderData(orderData) {
     sheet.getRange('A:Z').setFontFamily('Noto Sans Lao').setFontSize(12);
 
     // ตั้งความกว้างคอลัมน์
-    sheet.setColumnWidth(1, 50);  // ລຳດັບ
-    sheet.setColumnWidth(2, 120); // ລະຫັດສິນຄ້າ
-    sheet.setColumnWidth(3, 80);  // รูปภาพ
-    sheet.setColumnWidth(4, 200); // ชื่อสินค้า
-    sheet.setColumnWidth(5, 80);  // หน่วย
-    sheet.setColumnWidth(6, 80);  // จำนวน
-    sheet.setColumnWidth(7, 100); // ราคา/หน่วย
-    sheet.setColumnWidth(8, 120); // รวมเงิน
+    sheet.setColumnWidth(1, 50);
+    sheet.setColumnWidth(2, 120);
+    sheet.setColumnWidth(3, 80);
+    sheet.setColumnWidth(4, 200);
+    sheet.setColumnWidth(5, 80);
+    sheet.setColumnWidth(6, 80);
+    sheet.setColumnWidth(7, 100);
+    sheet.setColumnWidth(8, 120);
 
     let currentRow = 1;
 
@@ -481,11 +516,9 @@ function createPDFFromOrderData(orderData) {
     sheet.setRowHeight(currentRow, 40);
     currentRow++;
 
-    // บรรทัดว่าง
     sheet.setRowHeight(currentRow, 10);
     currentRow++;
 
-    // ข้อมูลใบสั่งซื้อ
     sheet.getRange(currentRow, 1).setValue('ເລກທີໃບສັ່ງຊື້:').setFontWeight('bold');
     sheet.getRange(currentRow, 2, 1, 3).merge().setValue(orderData.orderNumber);
     sheet.setRowHeight(currentRow, 25);
@@ -496,11 +529,9 @@ function createPDFFromOrderData(orderData) {
     sheet.setRowHeight(currentRow, 25);
     currentRow++;
 
-    // บรรทัดว่าง
     sheet.setRowHeight(currentRow, 10);
     currentRow++;
 
-    // Header ตาราง
     const headerRow = currentRow;
     const headers = ['ລຳດັບ','ລະຫັດສິນຄ້າ','ຮູບ','ຊື່ສິນຄ້າ','ຫົວໜ່ວຍ','ຈຳນວນ','ລາຄາ/ໜ່ວຍ','ລວມເງິນ'];
     for (let i = 0; i < headers.length; i++) {
@@ -512,66 +543,50 @@ function createPDFFromOrderData(orderData) {
     sheet.setRowHeight(headerRow, 35);
     currentRow++;
 
-    // ข้อมูลสินค้า
     orderData.items.forEach(function(item, index){
       sheet.setRowHeight(currentRow, 70);
       const rowRange = sheet.getRange(currentRow,1,1,8);
       rowRange.setVerticalAlignment('middle').setWrap(true);
 
-      // ลำดับ
       sheet.getRange(currentRow,1).setValue(index+1).setHorizontalAlignment('center');
-
-      // รหัสสินค้า
       sheet.getRange(currentRow,2).setValue(item.barcode || '-');
 
-     // --- รูปภาพคอลัมน์ 3 ---
-try {
-  const imageCell = sheet.getRange(currentRow, 3); // คอลัมน์ 3 = รูป
-  if(item.image && item.image.trim()!==''){
-    const match = item.image.match(/id=([a-zA-Z0-9_-]+)/); // ดึง File ID
-    if(match){
-      const fileId = match[1];
-      const file = DriveApp.getFileById(fileId);
-      const blob = file.getBlob();
+      try {
+        const imageCell = sheet.getRange(currentRow, 3);
+        if(item.image && item.image.trim()!==''){
+          const match = item.image.match(/id=([a-zA-Z0-9_-]+)/);
+          if(match){
+            const fileId = match[1];
+            const file = DriveApp.getFileById(fileId);
+            const blob = file.getBlob();
 
-      // ลบรูปเก่าที่อยู่ในเซลล์ (ถ้ามี)
-      const images = sheet.getImages();
-      images.forEach(img => {
-        const pos = img.getAnchorCell();
-        if(pos.getRow()===currentRow && pos.getColumn()===3) img.remove();
-      });
+            const images = sheet.getImages();
+            images.forEach(img => {
+              const pos = img.getAnchorCell();
+              if(pos.getRow()===currentRow && pos.getColumn()===3) img.remove();
+            });
 
-      // ใส่รูปและปรับขนาดให้ฟิตเต็มเซลล์
-      const cellWidth = sheet.getColumnWidth(3);
-      const cellHeight = sheet.getRowHeight(currentRow);
-      const imgInserted = sheet.insertImage(blob, 3, currentRow);
-      imgInserted.setAnchorCell(imageCell);
-      imgInserted.setWidth(cellWidth);
-      imgInserted.setHeight(cellHeight);
-    } else {
-      imageCell.setValue('');
-    }
-  } else {
-    imageCell.setValue('');
-  }
-} catch(e){
-  sheet.getRange(currentRow,3).setValue('');
-  Logger.log('Error inserting image row '+currentRow+': '+e.toString());
-}
+            const cellWidth = sheet.getColumnWidth(3);
+            const cellHeight = sheet.getRowHeight(currentRow);
+            const imgInserted = sheet.insertImage(blob, 3, currentRow);
+            imgInserted.setAnchorCell(imageCell);
+            imgInserted.setWidth(cellWidth);
+            imgInserted.setHeight(cellHeight);
+          } else {
+            imageCell.setValue('');
+          }
+        } else {
+          imageCell.setValue('');
+        }
+      } catch(e){
+        sheet.getRange(currentRow,3).setValue('');
+        Logger.log('Error inserting image row '+currentRow+': '+e.toString());
+      }
 
-
-
-
-
-      // ชื่อสินค้า
       sheet.getRange(currentRow,4).setValue(item.itemName || '-');
-      // หน่วย
       sheet.getRange(currentRow,5).setValue(item.unit || '-').setHorizontalAlignment('center');
-      // จำนวน
       sheet.getRange(currentRow,6).setValue(item.quantity || '-').setHorizontalAlignment('center');
-      // ราคา/หน่วย
       sheet.getRange(currentRow,7).setValue(item.price ? item.price.toLocaleString() : '-').setHorizontalAlignment('right');
-      // รวมเงิน
       sheet.getRange(currentRow,8).setValue(item.total ? item.total.toLocaleString() : '-').setHorizontalAlignment('right');
 
       currentRow++;
@@ -579,7 +594,6 @@ try {
 
     const lastDataRow = currentRow-1;
 
-    // แถว Total
     sheet.setRowHeight(currentRow,35);
     sheet.getRange(currentRow,1,1,7).merge();
     const totalLabelCell = sheet.getRange(currentRow,1);
@@ -593,11 +607,9 @@ try {
     const totalRow = currentRow;
     currentRow++;
 
-    // ลบแถวเกินด้านล่าง
     const maxRows = sheet.getMaxRows();
     if(maxRows>currentRow+5) sheet.deleteRows(currentRow+5,maxRows-currentRow-4);
 
-    // ลายเซ็น
     currentRow+=2;
     sheet.setRowHeight(currentRow,30);
     sheet.getRange(currentRow,1,1,4).merge()
@@ -607,25 +619,38 @@ try {
       .setValue('ລາຍເຊັນຜູ້ອະນຸມັດ: _________________')
       .setHorizontalAlignment('center').setVerticalAlignment('middle');
 
-    // Border
     const dataRange = sheet.getRange(headerRow,1,totalRow-headerRow+1,8);
     dataRange.setBorder(true,true,true,true,true,true,'#000000',SpreadsheetApp.BorderStyle.SOLID);
 
     SpreadsheetApp.flush();
     Utilities.sleep(2000);
 
-    // แปลงเป็น PDF
     const spreadsheetFile = DriveApp.getFileById(ssId);
     const pdfBlob = spreadsheetFile.getAs('application/pdf');
 
     const fileName = 'ໃບສັ່ງຊື້_'+orderData.orderNumber+'_'+Utilities.formatDate(new Date(), Session.getScriptTimeZone(),'yyyyMMdd_HHmmss')+'.pdf';
 
     const folder = DriveApp.getFolderById('1jmglJOSJFAD-1eQbtpY2Etu69fA9jtLv');
+
+    // ⭐ ลบไฟล์เก่าที่มี Order Number เดียวกันก่อน
+    const orderNumber = orderData.orderNumber;
+    const searchPattern = 'ໃບສັ່ງຊື້_' + orderNumber + '_';
+    const allFiles = folder.getFiles();
+
+    while (allFiles.hasNext()) {
+      const file = allFiles.next();
+      const name = file.getName();
+      
+      if (name.indexOf(searchPattern) === 0) {
+        Logger.log('Deleting old WhatsApp PDF: ' + name);
+        file.setTrashed(true);
+      }
+    }
+
     const pdfFile = folder.createFile(pdfBlob);
     pdfFile.setName(fileName);
     pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
 
-    // ลบ Spreadsheet ชั่วคราว
     spreadsheetFile.setTrashed(true);
 
     const fileId = pdfFile.getId();
@@ -697,5 +722,324 @@ function getPhoneNumberList() {
   } catch (error) {
     Logger.log('Error getting phone number list: ' + error.toString());
     return [];
+  }
+}
+/**
+ * รับ PDF ในรูปแบบ Base64 และอัปโหลดไป Google Drive
+ * (แก้ไข: ลบไฟล์เก่าถ้ามีอยู่แล้ว)
+ */
+function uploadPDFBase64(base64Data, fileName) {
+  try {
+    // แปลง Base64 เป็น Blob
+    const blob = Utilities.newBlob(
+      Utilities.base64Decode(base64Data),
+      'application/pdf',
+      fileName
+    );
+    
+    // เข้าถึง Google Drive folder
+    const folder = DriveApp.getFolderById('1jmglJOSJFAD-1eQbtpY2Etu69fA9jtLv');
+    
+    // ⭐ ดึง Order Number จากชื่อไฟล์
+    // ตัวอย่าง: "ໃບສັ່ງຊື້_PO-20250110-1430_1736486723456.pdf"
+    // ต้องการเอา "PO-20250110-1430"
+    const orderNumberMatch = fileName.match(/_([A-Z]+-\d{8}-\d{4})_/);
+    const orderNumber = orderNumberMatch ? orderNumberMatch[1] : null;
+    
+    if (orderNumber) {
+      Logger.log('Order Number detected: ' + orderNumber);
+      
+      // ⭐ ค้นหาไฟล์เก่าที่มี Order Number เดียวกัน
+      const existingFiles = folder.getFilesByName(fileName);
+      
+      // ลบไฟล์ที่ชื่อซ้ำกันทุกไฟล์
+      while (existingFiles.hasNext()) {
+        const oldFile = existingFiles.next();
+        Logger.log('Deleting old file: ' + oldFile.getName());
+        oldFile.setTrashed(true); // ย้ายเข้าถังขยะ
+      }
+      
+      // ⭐ ค้นหาไฟล์อื่นๆ ที่มี Order Number เดียวกัน (แม้ชื่อไม่ตรง)
+      const searchPattern = 'ໃບສັ່ງຊື້_' + orderNumber + '_';
+      const allFiles = folder.getFiles();
+      
+      while (allFiles.hasNext()) {
+        const file = allFiles.next();
+        const name = file.getName();
+        
+        // ถ้าชื่อไฟล์มี Order Number เดียวกัน
+        if (name.indexOf(searchPattern) === 0) {
+          Logger.log('Deleting related old file: ' + name);
+          file.setTrashed(true); // ย้ายเข้าถังขยะ
+        }
+      }
+    }
+    
+    // ⭐ สร้างไฟล์ PDF ใหม่
+    const file = folder.createFile(blob);
+    file.setName(fileName);
+    
+    // ตั้งค่าให้ใครก็เข้าถึงได้
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // ดึง URL ของไฟล์
+    const fileId = file.getId();
+    const directUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
+    
+    Logger.log('New PDF uploaded successfully: ' + directUrl);
+    
+    return {
+      success: true,
+      fileName: fileName,
+      fileUrl: directUrl,
+      fileId: fileId
+    };
+  } catch (error) {
+    Logger.log('Error uploading PDF: ' + error.toString());
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+/**
+ * ========================================
+ * ⭐ ฟังก์ชันใหม่: ดึงรูปจาก Google Drive แล้วแปลงเป็น Base64
+ * ========================================
+ */
+
+/**
+ * ดึงรูปจาก Google Drive และแปลงเป็น Base64
+ * @param {Array} imageUrls - Array ของ URL รูปภาพ
+ * @return {Array} - Array ของ Base64 strings
+ */
+function getImagesAsBase64(imageUrls) {
+  try {
+    const results = [];
+    
+    imageUrls.forEach(function(url) {
+      if (!url || url.trim() === '') {
+        results.push(null);
+        return;
+      }
+      
+      try {
+        // ดึง File ID จาก URL
+        const match = url.match(/id=([a-zA-Z0-9_-]+)/);
+        if (!match) {
+          results.push(null);
+          return;
+        }
+        
+        const fileId = match[1];
+        const file = DriveApp.getFileById(fileId);
+        const blob = file.getBlob();
+        
+        // ย่อขนาดรูปถ้าใหญ่เกินไป
+        const contentType = blob.getContentType();
+        let imageBlob = blob;
+        
+        // ตรวจสอบขนาด ถ้าเกิน 500KB ให้ย่อลง
+        if (blob.getBytes().length > 500000) {
+          // สำหรับรูปใหญ่ ให้ใช้ Thumbnail แทน
+          const thumbnail = Drive.Files.get(fileId, { 
+            supportsAllDrives: true,
+            fields: 'thumbnailLink'
+          });
+          
+          if (thumbnail.thumbnailLink) {
+            // ดึง Thumbnail (ขนาดเล็กกว่า)
+            const thumbUrl = thumbnail.thumbnailLink.replace('=s220', '=s400');
+            const thumbResponse = UrlFetchApp.fetch(thumbUrl, {
+              headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
+            });
+            imageBlob = thumbResponse.getBlob();
+          }
+        }
+        
+        // แปลงเป็น Base64
+        const base64 = Utilities.base64Encode(imageBlob.getBytes());
+        const dataUrl = 'data:' + contentType + ';base64,' + base64;
+        
+        results.push(dataUrl);
+        
+      } catch (e) {
+        Logger.log('Error processing image: ' + url + ' - ' + e.toString());
+        results.push(null);
+      }
+    });
+    
+    return results;
+    
+  } catch (error) {
+    Logger.log('Error in getImagesAsBase64: ' + error.toString());
+    return [];
+  }
+}
+/**
+ * ดึง URL ของไฟล์ PDF จาก Google Drive ตาม Order Number
+ * ฟังก์ชันใหม่
+ */
+function getPDFUrlByOrderNumber(orderNumber) {
+  try {
+    const folder = DriveApp.getFolderById('1jmglJOSJFAD-1eQbtpY2Etu69fA9jtLv');
+    
+    // ค้นหาไฟล์ที่มี Order Number ในชื่อ
+    const searchPattern = 'ໃບສັ່ງຊື້_' + orderNumber + '_';
+    const files = folder.getFiles();
+    
+    while (files.hasNext()) {
+      const file = files.next();
+      const fileName = file.getName();
+      
+      // ตรวจสอบว่าชื่อไฟล์ตรงกับ Order Number
+      if (fileName.indexOf(searchPattern) === 0 && fileName.endsWith('.pdf')) {
+        const fileId = file.getId();
+        const fileUrl = 'https://drive.google.com/file/d/' + fileId + '/view?usp=sharing';
+        
+        return {
+          success: true,
+          fileName: fileName,
+          fileUrl: fileUrl,
+          fileId: fileId
+        };
+      }
+    }
+    
+    // ไม่พบไฟล์
+    return {
+      success: false,
+      error: 'ບໍ່ພົບໄຟລ໌ PDF ສຳລັບເລກທີໃບສັ່ງຊື້ນີ້'
+    };
+    
+  } catch (error) {
+    Logger.log('Error getting PDF URL: ' + error.toString());
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+function testGetPriceStudyData() {
+  const data = getPriceStudyData();
+  Logger.log('Total items: ' + data.length);
+  
+  if (data.length > 0) {
+    Logger.log('First 3 items:');
+    for (let i = 0; i < Math.min(3, data.length); i++) {
+      Logger.log(JSON.stringify(data[i]));
+    }
+  }
+}
+
+
+
+/**
+ * ========================================
+ * ⭐ ฟังก์ชันใหม่: ระบบแก้ไขสินค้า
+ * ========================================
+ */
+
+/**
+ * ดึงข้อมูลไม่ซ้ำจากคอลัมน์ (สำหรับ Dropdown)
+ */
+function getUniqueColumnValues(columnLetter) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(ITEMS_SHEET);
+    
+    if (!sheet) {
+      Logger.log('Sheet not found');
+      return [];
+    }
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      return [];
+    }
+    
+    // แปลงตัวอักษรเป็นตำแหน่งคอลัมน์ (A=1, B=2, ...)
+    const columnIndex = columnLetter.charCodeAt(0) - 64;
+    
+    // ดึงข้อมูลจากคอลัมน์
+    const data = sheet.getRange(2, columnIndex, lastRow - 1, 1).getValues();
+    
+    // สร้าง Set เพื่อเก็บค่าที่ไม่ซ้ำ
+    const uniqueValues = {};
+    
+    data.forEach(function(row) {
+      const value = row[0];
+      if (value && value.toString().trim() !== '') {
+        uniqueValues[value.toString().trim()] = true;
+      }
+    });
+    
+    // แปลงเป็น Array และเรียงลำดับ
+    const result = Object.keys(uniqueValues).sort();
+    
+    Logger.log('Column ' + columnLetter + ': ' + result.length + ' unique values');
+    return result;
+    
+  } catch (error) {
+    Logger.log('Error getting unique values: ' + error.toString());
+    return [];
+  }
+}
+
+/**
+ * อัปเดตข้อมูลสินค้าหลายแถว
+ */
+function updateMultipleItems(updates) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheet = ss.getSheetByName(ITEMS_SHEET);
+    
+    if (!sheet) {
+      return { success: false, error: 'Sheet not found' };
+    }
+    
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    
+    let updatedCount = 0;
+    
+    // วนลูปแต่ละ update
+    updates.forEach(function(update) {
+      const barcode = update.barcode;
+      
+      // หาแถวที่ตรงกับ Barcode
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0].toString().trim() === barcode) {
+          // อัปเดตข้อมูล
+          if (update.columnB !== undefined) sheet.getRange(i + 1, 2).setValue(update.columnB);
+          if (update.columnC !== undefined) sheet.getRange(i + 1, 3).setValue(update.columnC);
+          if (update.columnD !== undefined) sheet.getRange(i + 1, 4).setValue(update.columnD);
+          if (update.columnF !== undefined) sheet.getRange(i + 1, 6).setValue(update.columnF);
+          if (update.columnH !== undefined) sheet.getRange(i + 1, 8).setValue(update.columnH);
+          if (update.columnI !== undefined) sheet.getRange(i + 1, 9).setValue(update.columnI);
+          if (update.columnK !== undefined) sheet.getRange(i + 1, 11).setValue(update.columnK);
+          if (update.columnL !== undefined) sheet.getRange(i + 1, 12).setValue(update.columnL);
+          if (update.columnM !== undefined) sheet.getRange(i + 1, 13).setValue(update.columnM);
+          if (update.columnN !== undefined) sheet.getRange(i + 1, 14).setValue(update.columnN);
+          
+          updatedCount++;
+          break;
+        }
+      }
+    });
+    
+    Logger.log('Updated ' + updatedCount + ' items');
+    
+    return { 
+      success: true, 
+      updatedCount: updatedCount 
+    };
+    
+  } catch (error) {
+    Logger.log('Error updating items: ' + error.toString());
+    return { 
+      success: false, 
+      error: error.toString() 
+    };
   }
 }
