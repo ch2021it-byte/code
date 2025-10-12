@@ -1,4 +1,5 @@
 
+
 /**
  * ระบบสแกนขายสินค้า - Google Apps Script Backend
  */
@@ -1041,5 +1042,93 @@ function updateMultipleItems(updates) {
       success: false, 
       error: error.toString() 
     };
+  }
+}
+/**
+ * ========================================
+ * ⭐ ฟังก์ชันใหม่: แปลงรูปจาก Thumbnail URL เป็น Base64
+ * ========================================
+ */
+
+/**
+ * แปลงรูปจาก Google Drive Thumbnail URL เป็น Base64
+ * @param {Array} thumbnailUrls - Array ของ Thumbnail URLs
+ * @return {Array} - Array ของ Base64 strings
+ */
+function convertThumbnailUrlsToBase64(thumbnailUrls) {
+  try {
+    const results = [];
+    
+    Logger.log('📸 Converting ' + thumbnailUrls.length + ' thumbnail URLs...');
+    
+    thumbnailUrls.forEach(function(url, index) {
+      if (!url || url.toString().trim() === '') {
+        results.push(null);
+        return;
+      }
+      
+      try {
+        // ⭐ ดึง File ID จาก Thumbnail URL
+        // Format: https://drive.google.com/thumbnail?id=FILE_ID&sz=w400
+        const match = url.match(/id=([a-zA-Z0-9_-]+)/);
+        
+        if (!match) {
+          Logger.log('⚠️ Cannot extract file ID from URL: ' + url);
+          results.push(null);
+          return;
+        }
+        
+        const fileId = match[1];
+        
+        // ⭐ ดึงไฟล์จาก Drive
+        const file = DriveApp.getFileById(fileId);
+        const blob = file.getBlob();
+        const contentType = blob.getContentType();
+        
+        // ⭐ ย่อขนาดถ้าใหญ่เกิน 300KB
+        let imageBlob = blob;
+        
+        if (blob.getBytes().length > 300000) {
+          try {
+            const thumbnail = Drive.Files.get(fileId, { 
+              supportsAllDrives: true,
+              fields: 'thumbnailLink'
+            });
+            
+            if (thumbnail.thumbnailLink) {
+              const thumbUrl = thumbnail.thumbnailLink.replace('=s220', '=s300');
+              const thumbResponse = UrlFetchApp.fetch(thumbUrl, {
+                headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() }
+              });
+              imageBlob = thumbResponse.getBlob();
+            }
+          } catch (e) {
+            Logger.log('⚠️ Cannot get thumbnail, using original: ' + e.toString());
+          }
+        }
+        
+        // ⭐ แปลงเป็น Base64
+        const base64 = Utilities.base64Encode(imageBlob.getBytes());
+        const dataUrl = 'data:' + contentType + ';base64,' + base64;
+        
+        results.push(dataUrl);
+        
+        // แสดงความคืบหน้าทุกๆ 10 รูป
+        if ((index + 1) % 10 === 0) {
+          Logger.log('✅ Processed ' + (index + 1) + '/' + thumbnailUrls.length);
+        }
+        
+      } catch (e) {
+        Logger.log('❌ Error converting URL ' + url + ': ' + e.toString());
+        results.push(null);
+      }
+    });
+    
+    Logger.log('✅ Conversion complete: ' + results.length + ' results');
+    return results;
+    
+  } catch (error) {
+    Logger.log('❌ Error in convertThumbnailUrlsToBase64: ' + error.toString());
+    return [];
   }
 }
