@@ -1,0 +1,972 @@
+// ===================================
+// Google Apps Script Backend
+// ===================================
+
+// Sheet IDs
+const SHEET_IDS = {
+  LOGIN: '11EX6hB9-XDZ2dEQVmYqPzLr7MFGVnmCRtVIsTxb3Z00',
+  DATA: '1d_KjNmdglqgXnJ0pQLpbxbheekHXBtRA4oNR5YQ_LmM',
+  OPTIONS: '1G1xpEIcd4xyMBCqlmzd2_IaPY7B8gDv_0I4qgCrBjCw'
+};
+
+// เพิ่มบรรทัดนี้
+const PHOTO_FOLDER_ID = '18ZTL-DldvkI7UNSDBWQlg6DneHz9a3tf';
+
+// Sheet Names
+const SHEET_NAMES = {
+  USER: 'ປະຫວັດ ອສບ',
+  HOUSEHOLD: 'ຫົວໜ້າຄອບຄົວ',
+  MEMBER: 'ສະມາຊິກຄອບຄົວ',
+  MOBILE: 'ປະຊາກອນເຄື່ອນທີ່',
+  LAND: 'ຂໍ້ມູນທີ່ດິນ',
+  VEHICLE: 'ຂໍ້ມູນຍານພະຫະນະ',
+  OPTIONS: 'ຕົວເລືອກ'
+};
+
+// ===================================
+// Serve HTML Page
+// ===================================
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('ລະບົບຂໍ້ມູນປະຊາກອນ')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+// ===================================
+// Upload Photo to Google Drive
+// ===================================
+function uploadPhoto(photoData, fileName) {
+  try {
+    if (!photoData || !photoData.startsWith('data:image')) {
+      return ''; // Return empty if no valid photo
+    }
+    
+    // Remove data:image/png;base64, prefix
+    const base64Data = photoData.split(',')[1];
+    const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), 'image/png', fileName);
+    
+    // Get folder
+    const folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    
+    // Check if file with same name exists
+    const existingFiles = folder.getFilesByName(fileName);
+    if (existingFiles.hasNext()) {
+      const existingFile = existingFiles.next();
+      existingFile.setTrashed(true);
+      Logger.log('Deleted existing file: ' + fileName);
+    }
+    
+    // Upload new file
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    const fileUrl = file.getUrl();
+    Logger.log('Photo uploaded: ' + fileUrl);
+    
+    return fileUrl;
+    
+  } catch (error) {
+    Logger.log('Error uploading photo: ' + error.message);
+    return photoData; // Return original data if upload fails
+  }
+}
+
+// ===================================
+// Get Login Data (ແຂວງ, ເມືອງ, ບ້ານ)
+// ===================================
+function getLoginData() {
+  try {
+    Logger.log('=== Starting getLoginData ===');
+    
+    const ss = SpreadsheetApp.openById(SHEET_IDS.LOGIN);
+    Logger.log('Opened spreadsheet: ' + ss.getName());
+    
+    const sheet = ss.getSheetByName(SHEET_NAMES.USER);
+    
+    if (!sheet) {
+      Logger.log('ERROR: Sheet not found: ' + SHEET_NAMES.USER);
+      throw new Error('ບໍ່ພົບຕາຣາງ "ປະຫວັດ ອສບ"');
+    }
+    
+    Logger.log('Found sheet: ' + sheet.getName());
+    
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    
+    Logger.log('Last Row: ' + lastRow);
+    Logger.log('Last Column: ' + lastCol);
+    
+    if (lastRow < 2) {
+      Logger.log('ERROR: No data in sheet (only header or empty)');
+      throw new Error('ບໍ່ມີຂໍ້ມູນໃນຕາຣາງ');
+    }
+    
+    // Get data from row 1 to lastRow, columns A to U (1 to 21)
+    const data = sheet.getRange(1, 1, lastRow, 21).getValues();
+    
+    Logger.log('Data rows retrieved: ' + data.length);
+    Logger.log('Header row: ' + JSON.stringify(data[0]));
+    
+    // Skip header row
+    const rows = data.slice(1);
+    Logger.log('Data rows (excluding header): ' + rows.length);
+    
+    // Build cascading data
+    const provinces = new Set();
+    const districts = {};
+    const villages = {};
+    const users = [];
+    
+    let validRows = 0;
+    let skippedRows = 0;
+    
+    rows.forEach((row, index) => {
+      // Column indices (0-based):
+      // A=0 (ລະຫັດ ອສບ), B=1 (ຊື່), E=4 (ບ້ານ), S=18 (ເມືອງ), T=19 (ແຂວງ)
+      
+      const code = row[0] ? String(row[0]).trim() : '';
+      const name = row[1] ? String(row[1]).trim() : '';
+      const village = row[4] ? String(row[4]).trim() : '';
+      const district = row[18] ? String(row[18]).trim() : '';
+      const province = row[19] ? String(row[19]).trim() : '';
+      
+      // Log first 3 rows for debugging
+      if (index < 3) {
+        Logger.log('Row ' + (index + 2) + ' data:');
+        Logger.log('  - Code (A): "' + code + '"');
+        Logger.log('  - Name (B): "' + name + '"');
+        Logger.log('  - Village (E): "' + village + '"');
+        Logger.log('  - District (S): "' + district + '"');
+        Logger.log('  - Province (T): "' + province + '"');
+      }
+      
+      // Skip rows with empty required fields
+      if (!code || !name || !village || !district || !province) {
+        skippedRows++;
+        if (index < 3) {
+          Logger.log('  -> SKIPPED (missing required fields)');
+        }
+        return;
+      }
+      
+      validRows++;
+      
+      // Add to provinces set
+      provinces.add(province);
+      
+      // Add to districts
+      if (!districts[province]) {
+        districts[province] = new Set();
+      }
+      districts[province].add(district);
+      
+      // Add to villages
+      const key = `${province}|${district}`;
+      if (!villages[key]) {
+        villages[key] = new Set();
+      }
+      villages[key].add(village);
+      
+      // Add to users array
+      users.push({
+        code: code,
+        name: name,
+        village: village,
+        district: district,
+        province: province
+      });
+    });
+    
+    Logger.log('Valid rows processed: ' + validRows);
+    Logger.log('Skipped rows: ' + skippedRows);
+    Logger.log('Unique provinces found: ' + provinces.size);
+    Logger.log('Total users: ' + users.length);
+    
+    if (provinces.size === 0) {
+      Logger.log('ERROR: No provinces found in data');
+      throw new Error('ບໍ່ພົບຂໍ້ມູນແຂວງໃນຕາຣາງ ກະລຸນາກວດສອບຄໍລໍາ T');
+    }
+    
+    // Convert Sets to sorted Arrays
+    const result = {
+      provinces: Array.from(provinces).sort(),
+      districts: {},
+      villages: {},
+      users: users
+    };
+    
+    // Convert district Sets to Arrays
+    Object.keys(districts).forEach(province => {
+      result.districts[province] = Array.from(districts[province]).sort();
+    });
+    
+    // Convert village Sets to Arrays
+    Object.keys(villages).forEach(key => {
+      result.villages[key] = Array.from(villages[key]).sort();
+    });
+    
+    Logger.log('=== Final Result ===');
+    Logger.log('Provinces: ' + result.provinces.join(', '));
+    Logger.log('Total districts: ' + Object.keys(result.districts).length);
+    Logger.log('Total village keys: ' + Object.keys(result.villages).length);
+    Logger.log('Total users: ' + result.users.length);
+    Logger.log('=== getLoginData completed successfully ===');
+    
+    return result;
+    
+  } catch (error) {
+    Logger.log('=== ERROR in getLoginData ===');
+    Logger.log(error.message);
+    Logger.log(error.stack);
+    throw new Error('ເກີດຂໍ້ຜິດພາດໃນການໂລດຂໍ້ມູນ Login: ' + error.message);
+  }
+}
+// ===================================
+// Validate Login
+// ===================================
+function validateLogin(loginData) {
+  try {
+    Logger.log('Validating login for: ' + JSON.stringify(loginData));
+    
+    const ss = SpreadsheetApp.openById(SHEET_IDS.LOGIN);
+    const sheet = ss.getSheetByName(SHEET_NAMES.USER);
+    
+    if (!sheet) {
+      throw new Error('ບໍ່ພົບຕາຣາງ "ປະຫວັດ ອສບ"');
+    }
+    
+    const lastRow = sheet.getLastRow();
+    const data = sheet.getRange(1, 1, lastRow, 21).getValues();
+    
+    // Normalize input data
+    const inputCode = String(loginData.code).trim();
+    const inputName = String(loginData.name).trim();
+    const inputProvince = String(loginData.province).trim();
+    const inputDistrict = String(loginData.district).trim();
+    const inputVillage = String(loginData.village).trim();
+    
+    // Find matching user (skip header row)
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      const rowCode = row[0] ? String(row[0]).trim() : '';
+      const rowName = row[1] ? String(row[1]).trim() : '';
+      const rowVillage = row[4] ? String(row[4]).trim() : '';
+      const rowDistrict = row[18] ? String(row[18]).trim() : '';
+      const rowProvince = row[19] ? String(row[19]).trim() : '';
+      
+      if (
+        rowCode === inputCode &&
+        rowName === inputName &&
+        rowProvince === inputProvince &&
+        rowDistrict === inputDistrict &&
+        rowVillage === inputVillage
+      ) {
+        Logger.log('Login successful for user: ' + rowName);
+        
+        return {
+          success: true,
+          user: {
+            code: rowCode,
+            name: rowName,
+            village: rowVillage,
+            district: rowDistrict,
+            province: rowProvince
+          }
+        };
+      }
+    }
+    
+    Logger.log('Login failed: No matching user found');
+    
+    return {
+      success: false,
+      message: 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ ກະລຸນາກວດສອບອີກຄັ້ງ'
+    };
+    
+  } catch (error) {
+    Logger.log('Error in validateLogin: ' + error.message);
+    return {
+      success: false,
+      message: 'ເກີດຂໍ້ຜິດພາດ: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Get Options Data (Dropdowns)
+// ===================================
+function getOptionsData() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.OPTIONS);
+    const sheet = ss.getSheetByName(SHEET_NAMES.OPTIONS);
+    const data = sheet.getDataRange().getValues();
+    
+    const options = {};
+    const headers = data[0];
+    
+    // Get each column (skip empty)
+    for (let col = 0; col < headers.length; col++) {
+      const columnData = [];
+      for (let row = 1; row < data.length; row++) {
+        if (data[row][col]) {
+          columnData.push(data[row][col]);
+        }
+      }
+      options[String.fromCharCode(65 + col)] = columnData; // A, B, C, ...
+    }
+    
+    return options;
+  } catch (error) {
+    throw new Error('ເກີດຂໍ້ຜິດພາດໃນການໂລດຕົວເລືອກ: ' + error.message);
+  }
+}
+// ===================================
+// Get All Household Data
+// ===================================
+function getHouseholdData() {
+  try {
+    Logger.log('=== Starting getHouseholdData ===');
+    
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    Logger.log('Opened data spreadsheet: ' + ss.getName());
+    
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (!householdSheet) {
+      Logger.log('ERROR: Household sheet not found: ' + SHEET_NAMES.HOUSEHOLD);
+      Logger.log('Available sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
+      return []; // Return empty array instead of throwing
+    }
+    
+    if (!memberSheet) {
+      Logger.log('ERROR: Member sheet not found: ' + SHEET_NAMES.MEMBER);
+      Logger.log('Available sheets: ' + ss.getSheets().map(s => s.getName()).join(', '));
+      return []; // Return empty array instead of throwing
+    }
+    
+    Logger.log('Found household sheet: ' + householdSheet.getName());
+    Logger.log('Found member sheet: ' + memberSheet.getName());
+    
+    const householdLastRow = householdSheet.getLastRow();
+    const memberLastRow = memberSheet.getLastRow();
+    
+    Logger.log('Household rows: ' + householdLastRow);
+    Logger.log('Member rows: ' + memberLastRow);
+    
+    if (householdLastRow < 2) {
+      Logger.log('No household data found (only header or empty)');
+      return []; // Return empty array
+    }
+    
+    // Get all household data
+    const householdData = householdSheet.getRange(1, 1, householdLastRow, 21).getValues();
+    Logger.log('Retrieved household data: ' + householdData.length + ' rows');
+    
+    // Get all member data (if exists)
+    let memberData = [[]];
+    if (memberLastRow >= 2) {
+      memberData = memberSheet.getRange(1, 1, memberLastRow, 23).getValues();
+      Logger.log('Retrieved member data: ' + memberData.length + ' rows');
+    } else {
+      Logger.log('No member data found');
+    }
+    
+    const households = [];
+    let processedCount = 0;
+    let skippedCount = 0;
+    
+    // Process households (skip header row)
+    for (let i = 1; i < householdData.length; i++) {
+      const row = householdData[i];
+      const householdCode = row[0] ? String(row[0]).trim() : '';
+      
+      if (!householdCode) {
+        skippedCount++;
+        if (i <= 3) {
+          Logger.log('Skipping row ' + (i + 1) + ' - empty household code');
+        }
+        continue;
+      }
+      
+      // Get members for this household
+      const members = [];
+      if (memberData.length > 1) {
+        for (let j = 1; j < memberData.length; j++) {
+          const memberHouseholdCode = memberData[j][0] ? String(memberData[j][0]).trim() : '';
+          
+          if (memberHouseholdCode === householdCode) {
+            members.push({
+              householdCode: String(memberData[j][0] || ''),
+              memberCode: String(memberData[j][1] || ''),
+              name: String(memberData[j][2] || ''),
+              photo: String(memberData[j][3] || ''),
+              gender: String(memberData[j][4] || ''),
+              birthDate: String(memberData[j][5] || ''),
+              inRegistry: String(memberData[j][6] || ''),
+              bodyComplete: String(memberData[j][7] || ''),
+              relationship: String(memberData[j][8] || ''),
+              ethnicity: String(memberData[j][9] || ''),
+              occupation: String(memberData[j][10] || ''),
+              disease: String(memberData[j][11] || ''),
+              insurance: String(memberData[j][12] || ''),
+              phone: String(memberData[j][13] || ''),
+              education: String(memberData[j][14] || ''),
+              religion: String(memberData[j][15] || ''),
+              maritalStatus: String(memberData[j][16] || ''),
+              actualResident: String(memberData[j][17] || ''),
+              village: String(memberData[j][18] || ''),
+              district: String(memberData[j][19] || ''),
+              province: String(memberData[j][20] || ''),
+              unit: String(memberData[j][21] || ''),
+              housePosition: String(memberData[j][22] || '')
+            });
+          }
+        }
+      }
+      
+      // Add household with members
+      households.push({
+        householdCode: String(row[0] || ''),
+        name: String(row[1] || ''),
+        photo: String(row[2] || ''),
+        phone: String(row[3] || ''),
+        houseNumber: String(row[4] || ''),
+        roofCount: String(row[5] || ''),
+        householdCount: String(row[6] || ''),
+        familyCount: String(row[7] || ''),
+        registryBookCount: String(row[8] || ''),
+        registryNumber: String(row[9] || ''),
+        familyMemberCount: String(row[10] || ''),
+        pageCount: String(row[11] || ''),
+        unit: String(row[12] || ''),
+        rentalLocation: String(row[13] || ''),
+        monthlyIncome: String(row[14] || ''),
+        housePosition: String(row[15] || ''),
+        village: String(row[16] || ''),
+        district: String(row[17] || ''),
+        province: String(row[18] || ''),
+        userCode: String(row[19] || ''),
+        userName: String(row[20] || ''),
+        members: members
+      });
+      
+      processedCount++;
+    }
+    
+    Logger.log('=== Processing Complete ===');
+    Logger.log('Total households processed: ' + processedCount);
+    Logger.log('Rows skipped: ' + skippedCount);
+    
+    if (households.length > 0) {
+      Logger.log('First household name: ' + households[0].name);
+      Logger.log('First household members: ' + households[0].members.length);
+    }
+    
+    Logger.log('=== Returning ' + households.length + ' households ===');
+    
+    return households;
+    
+  } catch (error) {
+    Logger.log('=== CRITICAL ERROR in getHouseholdData ===');
+    Logger.log('Error name: ' + error.name);
+    Logger.log('Error message: ' + error.message);
+    Logger.log('Error stack: ' + error.stack);
+    
+    // Return empty array instead of throwing error
+    return [];
+  }
+}
+// ===================================
+// Save Household (with Members)
+// ===================================
+function saveHousehold(householdData) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    // Generate household code if not exists
+    if (!householdData.householdCode) {
+      householdData.householdCode = generateCode(13);
+    }
+    
+    // Upload household photo if exists
+    let householdPhotoUrl = householdData.photo || '';
+    if (householdData.photo && householdData.photo.startsWith('data:image')) {
+      const photoFileName = 'household_' + householdData.householdCode + '_' + new Date().getTime() + '.png';
+      householdPhotoUrl = uploadPhoto(householdData.photo, photoFileName);
+    }
+    
+    // Save household
+    const householdRow = [
+      householdData.householdCode,
+      householdData.name,
+      householdPhotoUrl,
+      householdData.phone || '',
+      householdData.houseNumber || '',
+      householdData.roofCount || '',
+      householdData.householdCount || '',
+      householdData.familyCount || '',
+      householdData.registryBookCount || '',
+      householdData.registryNumber || '',
+      householdData.familyMemberCount || '',
+      householdData.pageCount || '',
+      householdData.unit || '',
+      householdData.rentalLocation || '',
+      householdData.monthlyIncome || '',
+      householdData.housePosition || '',
+      householdData.village || '',
+      householdData.district || '',
+      householdData.province || '',
+      householdData.userCode || '',
+      householdData.userName || ''
+    ];
+    
+    householdSheet.appendRow(householdRow);
+    
+    // Save members
+    if (householdData.members && householdData.members.length > 0) {
+      householdData.members.forEach(member => {
+        if (!member.memberCode) {
+          member.memberCode = 'Data-' + generateCode(13);
+        }
+        
+        // Upload member photo if exists
+        let memberPhotoUrl = member.photo || '';
+        if (member.photo && member.photo.startsWith('data:image')) {
+          const photoFileName = 'member_' + member.memberCode + '_' + new Date().getTime() + '.png';
+          memberPhotoUrl = uploadPhoto(member.photo, photoFileName);
+        }
+        
+        const memberRow = [
+          householdData.householdCode,
+          member.memberCode,
+          member.name || '',
+          memberPhotoUrl,
+          member.gender || '',
+          member.birthDate || '',
+          member.inRegistry || '',
+          member.bodyComplete || '',
+          member.relationship || '',
+          member.ethnicity || '',
+          member.occupation || '',
+          member.disease || '',
+          member.insurance || '',
+          member.phone || '',
+          member.education || '',
+          member.religion || '',
+          member.maritalStatus || '',
+          member.actualResident || '',
+          householdData.village || '',
+          householdData.district || '',
+          householdData.province || '',
+          householdData.unit || '',
+          householdData.housePosition || ''
+        ];
+        
+        memberSheet.appendRow(memberRow);
+      });
+    }
+    
+    return {
+      success: true,
+      householdCode: householdData.householdCode,
+      message: 'ບັນທຶກຂໍ້ມູນສຳເລັດ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ເກີດຂໍ້ຜິດພາດໃນການບັນທຶກ: ' + error.message
+    };
+  }
+}
+function updateHousehold(householdData) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    // Upload household photo if new photo provided
+    let householdPhotoUrl = householdData.photo || '';
+    if (householdData.photo && householdData.photo.startsWith('data:image')) {
+      const photoFileName = 'household_' + householdData.householdCode + '_' + new Date().getTime() + '.png';
+      householdPhotoUrl = uploadPhoto(householdData.photo, photoFileName);
+    }
+    
+    // Find and update household
+    const householdValues = householdSheet.getDataRange().getValues();
+    for (let i = 1; i < householdValues.length; i++) {
+      if (householdValues[i][0] === householdData.householdCode) {
+        householdSheet.getRange(i + 1, 1, 1, 21).setValues([[
+          householdData.householdCode,
+          householdData.name,
+          householdPhotoUrl,
+          householdData.phone || '',
+          householdData.houseNumber || '',
+          householdData.roofCount || '',
+          householdData.householdCount || '',
+          householdData.familyCount || '',
+          householdData.registryBookCount || '',
+          householdData.registryNumber || '',
+          householdData.familyMemberCount || '',
+          householdData.pageCount || '',
+          householdData.unit || '',
+          householdData.rentalLocation || '',
+          householdData.monthlyIncome || '',
+          householdData.housePosition || '',
+          householdData.village || '',
+          householdData.district || '',
+          householdData.province || '',
+          householdData.userCode || '',
+          householdData.userName || ''
+        ]]);
+        break;
+      }
+    }
+    
+    // Delete old members
+    const memberValues = memberSheet.getDataRange().getValues();
+    for (let i = memberValues.length - 1; i >= 1; i--) {
+      if (memberValues[i][0] === householdData.householdCode) {
+        memberSheet.deleteRow(i + 1);
+      }
+    }
+    
+    // Add updated members
+    if (householdData.members && householdData.members.length > 0) {
+      householdData.members.forEach(member => {
+        if (!member.memberCode) {
+          member.memberCode = 'Data-' + generateCode(13);
+        }
+        
+        // Upload member photo if new photo provided
+        let memberPhotoUrl = member.photo || '';
+        if (member.photo && member.photo.startsWith('data:image')) {
+          const photoFileName = 'member_' + member.memberCode + '_' + new Date().getTime() + '.png';
+          memberPhotoUrl = uploadPhoto(member.photo, photoFileName);
+        }
+        
+        const memberRow = [
+          householdData.householdCode,
+          member.memberCode,
+          member.name || '',
+          memberPhotoUrl,
+          member.gender || '',
+          member.birthDate || '',
+          member.inRegistry || '',
+          member.bodyComplete || '',
+          member.relationship || '',
+          member.ethnicity || '',
+          member.occupation || '',
+          member.disease || '',
+          member.insurance || '',
+          member.phone || '',
+          member.education || '',
+          member.religion || '',
+          member.maritalStatus || '',
+          member.actualResident || '',
+          householdData.village || '',
+          householdData.district || '',
+          householdData.province || '',
+          householdData.unit || '',
+          householdData.housePosition || ''
+        ];
+        
+        memberSheet.appendRow(memberRow);
+      });
+    }
+    
+    return {
+      success: true,
+      message: 'ອັບເດດຂໍ້ມູນສຳເລັດ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ເກີດຂໍ້ຜິດພາດໃນການອັບເດດ: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Delete Member
+// ===================================
+function deleteMember(memberCode, reason) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    const values = memberSheet.getDataRange().getValues();
+    
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][1] === memberCode) {
+        // Get photo URL before deleting
+        const photoUrl = values[i][3]; // Column D (photo)
+        
+        // Delete photo from Drive if reason is "incorrect data" or "death"
+        if (reason === 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ' || reason === 'ເສຍຊີວິດ') {
+          deletePhotoFromDrive(photoUrl);
+        }
+        
+        // Delete row from sheet
+        memberSheet.deleteRow(i + 1);
+        
+        // Log deletion
+        logDeletion('member', memberCode, reason);
+        
+        return {
+          success: true,
+          message: 'ລົບຂໍ້ມູນສຳເລັດ'
+        };
+      }
+    }
+    
+    return {
+      success: false,
+      message: 'ບໍ່ພົບຂໍ້ມູນ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ເກີດຂໍ້ຜິດພາດໃນການລົບ: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Delete Household (and all members)
+// ===================================
+function deleteHousehold(householdCode, reason) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    // Delete household photo if reason is "incorrect data"
+    if (reason === 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ') {
+      const householdValues = householdSheet.getDataRange().getValues();
+      for (let i = 1; i < householdValues.length; i++) {
+        if (householdValues[i][0] === householdCode) {
+          const photoUrl = householdValues[i][2]; // Column C (photo)
+          deletePhotoFromDrive(photoUrl);
+          break;
+        }
+      }
+      
+      // Delete all member photos
+      const memberValues = memberSheet.getDataRange().getValues();
+      for (let i = 1; i < memberValues.length; i++) {
+        if (memberValues[i][0] === householdCode) {
+          const photoUrl = memberValues[i][3]; // Column D (photo)
+          deletePhotoFromDrive(photoUrl);
+        }
+      }
+    }
+    
+    // Delete household row
+    const householdValues = householdSheet.getDataRange().getValues();
+    for (let i = householdValues.length - 1; i >= 1; i--) {
+      if (householdValues[i][0] === householdCode) {
+        householdSheet.deleteRow(i + 1);
+        break;
+      }
+    }
+    
+    // Delete all member rows
+    const memberValues = memberSheet.getDataRange().getValues();
+    for (let i = memberValues.length - 1; i >= 1; i--) {
+      if (memberValues[i][0] === householdCode) {
+        memberSheet.deleteRow(i + 1);
+      }
+    }
+    
+    // Log deletion
+    logDeletion('household', householdCode, reason);
+    
+    return {
+      success: true,
+      message: 'ລົບຂໍ້ມູນຄອບຄົວທັງໝົດສຳເລັດ'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'ເກີດຂໍ້ຜິດພາດໃນການລົບ: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Helper: Generate Random Code
+// ===================================
+function generateCode(length) {
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += Math.floor(Math.random() * 10);
+  }
+  return code;
+}
+
+// ===================================
+// Helper: Log Deletion
+// ===================================
+function logDeletion(type, code, reason) {
+  try {
+    // You can create a separate "Deletion Log" sheet
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    let logSheet = ss.getSheetByName('ປະຫວັດການລົບ');
+    
+    if (!logSheet) {
+      logSheet = ss.insertSheet('ປະຫວັດການລົບ');
+      logSheet.appendRow(['ວັນທີ', 'ປະເພດ', 'ລະຫັດ', 'ເຫດຜົນ', 'ຜູ້ລົບ']);
+    }
+    
+    logSheet.appendRow([
+      new Date(),
+      type,
+      code,
+      reason,
+      Session.getActiveUser().getEmail()
+    ]);
+  } catch (error) {
+    Logger.log('Failed to log deletion: ' + error.message);
+  }
+}
+
+
+
+
+
+
+
+// ===================================
+// TEST FUNCTION - ลบได้หลังแก้ปัญหา
+// ===================================
+function testGetLoginData() {
+  try {
+    Logger.log('>>> Testing getLoginData()...');
+    const result = getLoginData();
+    
+    Logger.log('>>> Test Result:');
+    Logger.log('Provinces count: ' + result.provinces.length);
+    Logger.log('Provinces: ' + JSON.stringify(result.provinces));
+    Logger.log('Users count: ' + result.users.length);
+    
+    if (result.users.length > 0) {
+      Logger.log('First user: ' + JSON.stringify(result.users[0]));
+    }
+    
+    Logger.log('>>> Test completed successfully!');
+    return result;
+    
+  } catch (error) {
+    Logger.log('>>> Test FAILED:');
+    Logger.log(error.message);
+    Logger.log(error.stack);
+    return null;
+  }
+}
+// ===================================
+// TEST: Check if data exists
+// ===================================
+function testDataExists() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.DATA);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    Logger.log('=== Testing Data Sheets ===');
+    Logger.log('Household Sheet: ' + (householdSheet ? 'Found' : 'NOT FOUND'));
+    Logger.log('Member Sheet: ' + (memberSheet ? 'Found' : 'NOT FOUND'));
+    
+    if (householdSheet) {
+      const householdRows = householdSheet.getLastRow();
+      Logger.log('Household rows: ' + householdRows);
+      
+      if (householdRows > 1) {
+        const sampleData = householdSheet.getRange(2, 1, 1, 5).getValues()[0];
+        Logger.log('Sample household data: ' + JSON.stringify(sampleData));
+      }
+    }
+    
+    if (memberSheet) {
+      const memberRows = memberSheet.getLastRow();
+      Logger.log('Member rows: ' + memberRows);
+      
+      if (memberRows > 1) {
+        const sampleData = memberSheet.getRange(2, 1, 1, 5).getValues()[0];
+        Logger.log('Sample member data: ' + JSON.stringify(sampleData));
+      }
+    }
+    
+    Logger.log('=== Test Completed ===');
+    return {
+      householdExists: householdSheet !== null,
+      memberExists: memberSheet !== null,
+      householdRows: householdSheet ? householdSheet.getLastRow() : 0,
+      memberRows: memberSheet ? memberSheet.getLastRow() : 0
+    };
+    
+  } catch (error) {
+    Logger.log('ERROR in testDataExists: ' + error.message);
+    return { error: error.message };
+  }
+}
+// ===================================
+// TEST: Get Household Data
+// ===================================
+function testGetHouseholdData() {
+  Logger.log('>>> Starting test...');
+  
+  try {
+    const result = getHouseholdData();
+    
+    Logger.log('>>> Test Result:');
+    Logger.log('Type: ' + typeof result);
+    Logger.log('Is Array: ' + Array.isArray(result));
+    Logger.log('Length: ' + (result ? result.length : 'null'));
+    
+    if (result && result.length > 0) {
+      Logger.log('First household:');
+      Logger.log(JSON.stringify(result[0]));
+    } else {
+      Logger.log('No households returned (empty array or null)');
+    }
+    
+    Logger.log('>>> Test completed!');
+    return result;
+    
+  } catch (error) {
+    Logger.log('>>> Test FAILED:');
+    Logger.log(error.message);
+    Logger.log(error.stack);
+    return null;
+  }
+}
+// ===================================
+// Delete Photo from Drive
+// ===================================
+function deletePhotoFromDrive(photoUrl) {
+  try {
+    if (!photoUrl || !photoUrl.includes('drive.google.com')) {
+      return; // Not a Drive URL
+    }
+    
+    // Extract file ID from URL
+    const match = photoUrl.match(/[-\w]{25,}/);
+    if (!match) {
+      Logger.log('Could not extract file ID from URL: ' + photoUrl);
+      return;
+    }
+    
+    const fileId = match[0];
+    const file = DriveApp.getFileById(fileId);
+    
+    if (file) {
+      file.setTrashed(true);
+      Logger.log('Photo deleted from Drive: ' + fileId);
+    }
+    
+  } catch (error) {
+    Logger.log('Error deleting photo: ' + error.message);
+  }
+}
