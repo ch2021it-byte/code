@@ -1,0 +1,696 @@
+// =============================================
+//  PRE/POST TEST SYSTEM — Code.gs  v5.0
+//  รักษาระบบเดิมทั้งหมด + เพิ่มฟีเจอร์ใหม่:
+//  1. Login/Register + อนุมัติ
+//  2. สิทธิ์ Admin/User + เห็นแค่ของตัวเอง
+//  3. Export คะแนน Excel จริง
+//  4. Summary รายข้อ (ครบแล้วในเดิม)
+//  5. ข้อมูล createdBy ครบ
+// =============================================
+
+const DRIVE_FOLDER_ID = '1tuOflctVSw8n6aUgLnEme0frjN5gTs0D';
+const MASTER_SS_ID    = '1iA-srMh_h_LrovHrt9ZJhZMj-KeoqwQgHKIAUdcSSZ8';
+const LOGIN_SS_ID     = '1iA-srMh_h_LrovHrt9ZJhZMj-KeoqwQgHKIAUdcSSZ8';
+
+const MASTER_SHEET_NAMES = {
+  CONFIG:    'Config',
+  TEMPLATES: 'Templates'
+};
+
+// ── doGet ──────────────────────────────────────────────────────
+function doGet(e) {
+  const params     = (e && e.parameter) ? e.parameter : {};
+  const templateId = params.templateId || '';
+  const token      = params.token      || '';
+  const page       = templateId ? 'student' : 'main';
+
+  const tmpl = HtmlService.createTemplateFromFile('index');
+  tmpl.page        = page;
+  tmpl.token       = token;
+  tmpl.templateId  = templateId;
+  tmpl.deployUrl   = ScriptApp.getService().getUrl();
+  tmpl.quizTitle   = templateId ? getTemplateTitleById(templateId) : 'ระบบสร้างแบบทดสอบ';
+
+  const output = tmpl.evaluate()
+    .setTitle(tmpl.quizTitle)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+  return output;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LOGIN / REGISTER / AUTH
+// ══════════════════════════════════════════════════════════════
+
+function getLoginSheet() {
+  const ss = SpreadsheetApp.openById(LOGIN_SS_ID);
+  let sh = ss.getSheetByName('login');
+  if (!sh) {
+    sh = ss.insertSheet('login');
+    sh.appendRow(['username', 'password', 'fullname', 'status', 'approved']);
+  }
+  return sh;
+}
+
+function loginUser(username, password) {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (String(row[0]).trim().toLowerCase() === String(username).trim().toLowerCase() &&
+          String(row[1]).trim() === String(password).trim()) {
+        const approved = String(row[4]).trim().toLowerCase();
+        if (approved !== 'yes' && approved !== 'อนุมัติ' && approved !== '1' && approved !== 'true') {
+          return { success: false, error: 'รอการอนุมัติจากแอดมิน กรุณารอสักครู่' };
+        }
+        return {
+          success: true,
+          user: {
+            username: String(row[0]).trim(),
+            fullname: String(row[2]).trim(),
+            status:   String(row[3]).trim().toLowerCase(),
+            approved: true
+          }
+        };
+      }
+    }
+    return { success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
+  } catch(e) {
+    Logger.log('loginUser error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function registerUser(username, password, fullname) {
+  try {
+    username = String(username).trim();
+    password = String(password).trim();
+    fullname = String(fullname).trim();
+
+    if (!username || !password || !fullname) {
+      return { success: false, error: 'กรุณากรอกข้อมูลให้ครบ' };
+    }
+
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim().toLowerCase() === username.toLowerCase()) {
+        return { success: false, error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' };
+      }
+    }
+
+    sh.appendRow([username, password, fullname, 'user', 'no']);
+    return { success: true, message: 'ลงทะเบียนสำเร็จ! รอการอนุมัติจากแอดมิน' };
+  } catch(e) {
+    Logger.log('registerUser error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Get pending users (Admin only) ───────────────────────────
+function getPendingUsers() {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    const pending = [];
+    for (let i = 1; i < data.length; i++) {
+      const approved = String(data[i][4]).trim().toLowerCase();
+      if (approved !== 'yes' && approved !== 'อนุมัติ' && approved !== '1' && approved !== 'true') {
+        pending.push({
+          row:      i + 1,
+          username: String(data[i][0]).trim(),
+          fullname: String(data[i][2]).trim(),
+          status:   String(data[i][3]).trim()
+        });
+      }
+    }
+    return { success: true, pending: pending };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Approve user (Admin only) ─────────────────────────────────
+function approveUser(username) {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim().toLowerCase() === String(username).trim().toLowerCase()) {
+        sh.getRange(i + 1, 5).setValue('yes');
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบผู้ใช้' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MASTER SPREADSHEET
+// ══════════════════════════════════════════════════════════════
+
+function getMasterSS() {
+  return SpreadsheetApp.openById(MASTER_SS_ID);
+}
+
+function getMasterSheet(name) {
+  const ss = getMasterSS();
+  if (!ss) throw new Error('ไม่พบ Master Spreadsheet');
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (name === MASTER_SHEET_NAMES.CONFIG) {
+      sh.appendRow(['key', 'value']);
+    } else if (name === MASTER_SHEET_NAMES.TEMPLATES) {
+      sh.appendRow(['templateId','title','sheetId','sheetUrl','shareToken','shareUrl','createdAt','questionCount','coverImageId','coverImageUrl','createdBy']);
+    }
+  }
+  return sh;
+}
+
+function getConfig(key) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) return data[i][1];
+  }
+  return null;
+}
+
+function setConfig(key, value) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) { sh.getRange(i+1, 2).setValue(value); return; }
+  }
+  sh.appendRow([key, value]);
+}
+
+// ── Template registry ─────────────────────────────────────────
+function registerTemplate(templateId, title, sheetId, sheetUrl, shareToken, shareUrl, questionCount, createdBy) {
+  const sh = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  sh.appendRow([templateId, title, sheetId, sheetUrl, shareToken, shareUrl, new Date().toISOString(), questionCount, '', '', createdBy || '']);
+}
+
+function getTemplateRow(templateId) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === templateId) return { row: i+1, data: data[i] };
+  }
+  return null;
+}
+
+function getTemplateTitleById(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    return found ? found.data[1] : 'แบบทดสอบ';
+  } catch(e) {
+    return 'แบบทดสอบ';
+  }
+}
+
+// ── Get all templates (กรอง by createdBy สำหรับ non-admin) ────
+function getTemplates(username, isAdmin) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    const templates = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const createdBy = String(data[i][10] || '').trim();
+      if (!isAdmin && username && createdBy.toLowerCase() !== String(username).toLowerCase()) continue;
+      templates.push({
+        templateId:    data[i][0],
+        title:         data[i][1],
+        sheetId:       data[i][2],
+        sheetUrl:      data[i][3],
+        shareToken:    data[i][4],
+        shareUrl:      data[i][5],
+        createdAt:     data[i][6],
+        questionCount: data[i][7],
+        coverImageId:  data[i][8] || '',
+        coverImageUrl: data[i][9] || '',
+        createdBy:     createdBy
+      });
+    }
+    return { success: true, templates: templates.reverse() };
+  } catch(e) {
+    Logger.log('getTemplates error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Save questions ─────────────────────────────────────────────
+function saveQuestions(payload) {
+  try {
+    const parsed    = JSON.parse(payload);
+    const questions = parsed.questions;
+    const quizTitle = (parsed.title || 'แบบทดสอบ').trim();
+    const createdBy = parsed.createdBy || '';
+
+    const fileName = quizTitle + ' — ' + Utilities.formatDate(
+      new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm'
+    );
+    const newSS = SpreadsheetApp.create(fileName);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1000);
+
+    try {
+      const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+      const newFile = DriveApp.getFileById(newSS.getId());
+      folder.addFile(newFile);
+      DriveApp.getRootFolder().removeFile(newFile);
+    } catch(folderErr) {
+      Logger.log('folder move error: ' + folderErr.message);
+    }
+
+    const ss     = SpreadsheetApp.openById(newSS.getId());
+    const sheets = ss.getSheets();
+
+    const qSheet = sheets[0];
+    qSheet.setName('Questions');
+    qSheet.clearContents();
+    qSheet.appendRow(['id','type','questionText','choices','correctAnswer','createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i+1, q.type||'mc', q.questionText||'',
+        JSON.stringify(q.choices||[]),
+        JSON.stringify(q.correctAnswer!==undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+    SpreadsheetApp.flush();
+
+    let respSheet = ss.getSheetByName('Responses');
+    if (!respSheet) respSheet = ss.insertSheet('Responses');
+    respSheet.clearContents();
+    respSheet.appendRow(['timestamp','name','phone','testType','answers','score','total','percent']);
+    SpreadsheetApp.flush();
+
+    let infoSheet = ss.getSheetByName('Info');
+    if (!infoSheet) infoSheet = ss.insertSheet('Info');
+    infoSheet.clearContents();
+
+    const templateId = Utilities.getUuid();
+    const shareToken = Utilities.getUuid();
+    const deployUrl  = ScriptApp.getService().getUrl();
+    const shareUrl   = deployUrl + '?page=student&templateId=' + templateId + '&token=' + shareToken;
+
+    infoSheet.appendRow(['key','value']);
+    infoSheet.appendRow(['title',        quizTitle]);
+    infoSheet.appendRow(['templateName', quizTitle]);
+    infoSheet.appendRow(['templateId',   templateId]);
+    infoSheet.appendRow(['shareToken',   shareToken]);
+    infoSheet.appendRow(['shareUrl',     shareUrl]);
+    infoSheet.appendRow(['createdAt',    new Date().toISOString()]);
+    infoSheet.appendRow(['createdBy',    createdBy]);
+    SpreadsheetApp.flush();
+
+    registerTemplate(templateId, quizTitle, ss.getId(), ss.getUrl(), shareToken, shareUrl, questions.length, createdBy);
+
+    return { success: true, shareUrl: shareUrl, sheetUrl: ss.getUrl(), templateId: templateId };
+  } catch(e) {
+    Logger.log('saveQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Get questions for student ──────────────────────────────────
+function getQuestionsForTemplate(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบนี้' };
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+    const data    = qSheet.getDataRange().getValues();
+    const questions = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      questions.push({
+        id:            data[i][0],
+        type:          data[i][1],
+        questionText:  data[i][2],
+        choices:       JSON.parse(data[i][3] || '[]'),
+        correctAnswer: JSON.parse(data[i][4] !== '' ? data[i][4] : 'null')
+      });
+    }
+    const title         = found.data[1];
+    const coverImageUrl = found.data[9] || '';
+    return { success: true, questions: questions, title: title, coverImageUrl: coverImageUrl };
+  } catch(e) {
+    Logger.log('getQuestionsForTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Submit response ───────────────────────────────────────────
+function submitResponse(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const name       = parsed.name;
+    const phone      = parsed.phone;
+    const testType   = parsed.testType;
+    const answers    = parsed.answers;
+    const templateId = parsed.templateId;
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบ' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const qSheet    = ss.getSheetByName('Questions');
+
+    const respData = respSheet.getDataRange().getValues();
+    let preCount = 0, postCount = 0;
+    for (let i = 1; i < respData.length; i++) {
+      if (String(respData[i][2]) === String(phone)) {
+        if (respData[i][3] === 'pre')  preCount++;
+        if (respData[i][3] === 'post') postCount++;
+      }
+    }
+    if (testType === 'pre'  && preCount  >= 1) return { success: false, error: 'คุณได้ทำ Pre-test แล้ว' };
+    if (testType === 'post' && postCount >= 1) return { success: false, error: 'คุณได้ทำ Post-test แล้ว' };
+    if (testType === 'post' && preCount  === 0) return { success: false, error: 'กรุณาทำ Pre-test ก่อน' };
+
+    const qData = qSheet.getDataRange().getValues();
+    let score = 0, gradable = 0;
+    for (let i = 1; i < qData.length; i++) {
+      const type    = qData[i][1];
+      const correct = JSON.parse(qData[i][4] !== '' ? qData[i][4] : 'null');
+      const given   = answers[i-1];
+      if (type === 'text') continue;
+      gradable++;
+      if (type === 'mc' || type === 'dropdown') {
+        if (String(given) === String(correct)) score++;
+      } else if (type === 'checkbox') {
+        const correctArr = Array.isArray(correct) ? correct.map(String).sort() : [];
+        const givenArr   = Array.isArray(given)   ? given.map(String).sort()   : [];
+        if (JSON.stringify(correctArr) === JSON.stringify(givenArr)) score++;
+      }
+    }
+    const total   = gradable;
+    const percent = total > 0 ? Math.round((score/total)*100) : 0;
+
+    respSheet.appendRow([
+      new Date().toISOString(), name, phone, testType,
+      JSON.stringify(answers), score, total, percent
+    ]);
+
+    return { success: true, score: score, total: total, percent: percent };
+  } catch(e) {
+    Logger.log('submitResponse error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Summary ───────────────────────────────────────────────────
+function getTemplateSummary(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const qSheet    = ss.getSheetByName('Questions');
+    const respData  = respSheet.getDataRange().getValues();
+    const qData     = qSheet.getDataRange().getValues();
+
+    const questionMeta = [];
+    for (let i = 1; i < qData.length; i++) {
+      if (!qData[i][0]) continue;
+      questionMeta.push({
+        id:            qData[i][0],
+        type:          qData[i][1],
+        questionText:  qData[i][2],
+        choices:       JSON.parse(qData[i][3] || '[]'),
+        correctAnswer: JSON.parse(qData[i][4] !== '' ? qData[i][4] : 'null')
+      });
+    }
+
+    const pre = [], post = [];
+    for (let i = 1; i < respData.length; i++) {
+      if (!respData[i][0]) continue;
+      const answers = JSON.parse(respData[i][4] || '[]');
+      const row = {
+        name:    respData[i][1],
+        phone:   String(respData[i][2]),
+        score:   parseInt(respData[i][5])   || 0,
+        total:   parseInt(respData[i][6])   || 0,
+        percent: parseFloat(respData[i][7]) || 0,
+        answers: answers
+      };
+      if (respData[i][3] === 'pre')       pre.push(row);
+      else if (respData[i][3] === 'post') post.push(row);
+    }
+
+    const avg = function(arr) {
+      return arr.length ? Math.round(arr.reduce(function(s,r){ return s+r.percent; }, 0) / arr.length) : 0;
+    };
+
+    const questionStats = questionMeta.map(function(q, qi) {
+      let preWrong = 0, postWrong = 0, preTotal = 0, postTotal = 0;
+
+      pre.forEach(function(r) {
+        if (q.type === 'text') return;
+        preTotal++;
+        const given   = r.answers[qi];
+        const correct = q.correctAnswer;
+        let wrong = false;
+        if (q.type === 'mc' || q.type === 'dropdown') {
+          wrong = String(given) !== String(correct);
+        } else if (q.type === 'checkbox') {
+          const ca = Array.isArray(correct) ? correct.map(String).sort() : [];
+          const ga = Array.isArray(given)   ? given.map(String).sort()   : [];
+          wrong = JSON.stringify(ca) !== JSON.stringify(ga);
+        }
+        if (wrong) preWrong++;
+      });
+
+      post.forEach(function(r) {
+        if (q.type === 'text') return;
+        postTotal++;
+        const given   = r.answers[qi];
+        const correct = q.correctAnswer;
+        let wrong = false;
+        if (q.type === 'mc' || q.type === 'dropdown') {
+          wrong = String(given) !== String(correct);
+        } else if (q.type === 'checkbox') {
+          const ca = Array.isArray(correct) ? correct.map(String).sort() : [];
+          const ga = Array.isArray(given)   ? given.map(String).sort()   : [];
+          wrong = JSON.stringify(ca) !== JSON.stringify(ga);
+        }
+        if (wrong) postWrong++;
+      });
+
+      return {
+        index:        qi + 1,
+        questionText: q.questionText,
+        type:         q.type,
+        preWrong:     preWrong,
+        postWrong:    postWrong,
+        preTotal:     preTotal,
+        postTotal:    postTotal,
+        preWrongPct:  preTotal  > 0 ? Math.round((preWrong/preTotal)*100)   : 0,
+        postWrongPct: postTotal > 0 ? Math.round((postWrong/postTotal)*100) : 0
+      };
+    });
+
+    return {
+      success:  true,
+      title:    found.data[1],
+      sheetUrl: found.data[3],
+      shareUrl: found.data[5],
+      pre:  { count: pre.length,  avgPercent: avg(pre),  rows: pre  },
+      post: { count: post.length, avgPercent: avg(post), rows: post },
+      questionStats: questionStats
+    };
+  } catch(e) {
+    Logger.log('getTemplateSummary error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Delete template ───────────────────────────────────────────
+function deleteTemplate(templateId, username, isAdmin) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const createdBy = String(data[i][10] || '').trim().toLowerCase();
+        if (!isAdmin && username && createdBy !== String(username).toLowerCase()) {
+          return { success: false, error: 'คุณไม่มีสิทธิ์ลบเทมเพลตนี้' };
+        }
+        const sheetId = data[i][2];
+        try { DriveApp.getFileById(sheetId).setTrashed(true); } catch(driveErr) { }
+        sh.deleteRow(i+1);
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    Logger.log('deleteTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function deleteTemplates(templateIds, username, isAdmin) {
+  try {
+    const results = [];
+    for (let i = 0; i < templateIds.length; i++) {
+      const res = deleteTemplate(templateIds[i], username, isAdmin);
+      results.push({ id: templateIds[i], success: res.success, error: res.error });
+    }
+    return { success: true, results: results };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Update questions ──────────────────────────────────────────
+function updateQuestions(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const templateId = parsed.templateId;
+    const questions  = parsed.questions;
+    const quizTitle  = (parsed.title || 'แบบทดสอบ').trim();
+    const username   = parsed.username || '';
+    const isAdmin    = parsed.isAdmin  || false;
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const createdBy = String(found.data[10] || '').trim().toLowerCase();
+    if (!isAdmin && username && createdBy !== String(username).toLowerCase()) {
+      return { success: false, error: 'คุณไม่มีสิทธิ์แก้ไขเทมเพลตนี้' };
+    }
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+
+    qSheet.clearContents();
+    qSheet.appendRow(['id','type','questionText','choices','correctAnswer','createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i+1, q.type||'mc', q.questionText||'',
+        JSON.stringify(q.choices||[]),
+        JSON.stringify(q.correctAnswer!==undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+
+    const infoSheet = ss.getSheetByName('Info');
+    if (infoSheet) {
+      const infoData = infoSheet.getDataRange().getValues();
+      for (let i = 1; i < infoData.length; i++) {
+        if (infoData[i][0] === 'title') infoSheet.getRange(i+1,2).setValue(quizTitle);
+      }
+    }
+
+    const sh         = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const masterData = sh.getDataRange().getValues();
+    for (let i = 1; i < masterData.length; i++) {
+      if (masterData[i][0] === templateId) {
+        sh.getRange(i+1, 2).setValue(quizTitle);
+        sh.getRange(i+1, 8).setValue(questions.length);
+        break;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch(e) {
+    Logger.log('updateQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Upload cover image ─────────────────────────────────────────
+function uploadCoverImage(base64Data, mimeType, templateId) {
+  try {
+    const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    const blob    = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, 'cover_' + templateId);
+    const file    = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId  = file.getId();
+    const fileUrl = 'https://lh3.googleusercontent.com/d/' + fileId;
+
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const oldId = data[i][8];
+        if (oldId) { try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {} }
+        sh.getRange(i+1, 9).setValue(fileId);
+        sh.getRange(i+1, 10).setValue(fileUrl);
+        break;
+      }
+    }
+    return { success: true, fileId: fileId, fileUrl: fileUrl };
+  } catch(e) {
+    Logger.log('uploadCoverImage error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function deleteCoverImage(templateId) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const oldId = data[i][8];
+        if (oldId) {
+          try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {}
+          sh.getRange(i+1, 9).setValue('');
+          sh.getRange(i+1, 10).setValue('');
+        }
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Export scores as CSV data (สำหรับ Excel download) ─────────
+function getScoresForExport(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const data      = respSheet.getDataRange().getValues();
+
+    const rows = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      rows.push({
+        timestamp: data[i][0],
+        name:      data[i][1],
+        phone:     String(data[i][2]),
+        testType:  data[i][3],
+        score:     data[i][5],
+        total:     data[i][6],
+        percent:   data[i][7]
+      });
+    }
+    return { success: true, title: found.data[1], rows: rows };
+  } catch(e) {
+    Logger.log('getScoresForExport error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
