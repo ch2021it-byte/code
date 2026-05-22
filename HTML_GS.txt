@@ -1,0 +1,2344 @@
+// =============================================
+//  PRE/POST TEST SYSTEM — Code.gs  v3.1
+//  แก้ไข: getMasterSS ใช้ openById / PropertiesService
+//         doGet ป้องกัน e.parameter เป็น null
+// =============================================
+
+const DRIVE_FOLDER_ID = '1tuOflctVSw8n6aUgLnEme0frjN5gTs0D';
+
+// ★ ขั้นตอนที่ 1: ใส่ Spreadsheet ID ของ Master Sheet ตรงนี้ ★
+// วิธีหา ID: เปิด Google Sheet → ดู URL
+// https://docs.google.com/spreadsheets/d/ [ID อยู่ตรงนี้] /edit
+// ถ้าไม่ใส่ → ระบบจะสร้าง Master Sheet ใหม่อัตโนมัติในครั้งแรก
+const MASTER_SS_ID = 'PASTE_YOUR_SPREADSHEET_ID_HERE';
+
+const MASTER_SHEET_NAMES = {
+  CONFIG:    'Config',
+  TEMPLATES: 'Templates'
+};
+
+// ── doGet (แก้: ป้องกัน e หรือ e.parameter เป็น null) ──────────
+function doGet(e) {
+  const params     = (e && e.parameter) ? e.parameter : {};
+  const page       = params.page       || 'admin';
+  const token      = params.token      || '';
+  const templateId = params.templateId || '';
+
+  const tmpl = HtmlService.createTemplateFromFile('index');
+  tmpl.page        = page;
+  tmpl.token       = token;
+  tmpl.templateId  = templateId;
+  tmpl.deployUrl   = ScriptApp.getService().getUrl();
+  tmpl.quizTitle   = templateId ? getTemplateTitleById(templateId) : 'แบบทดสอบ';
+
+  return tmpl.evaluate()
+    .setTitle(page === 'student' ? tmpl.quizTitle : 'ระบบสร้างแบบทดสอบ')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ── Master Spreadsheet ─────────────────────────────────────────
+// แก้ไขหลัก: ไม่ใช้ getActiveSpreadsheet() อีกต่อไป
+// เพราะ Web App Standalone ไม่มี Active Spreadsheet
+function getMasterSS() {
+  // วิธี 1: ใช้ ID ที่กำหนดไว้ด้านบนโดยตรง
+  if (MASTER_SS_ID && MASTER_SS_ID !== 'PASTE_YOUR_SPREADSHEET_ID_HERE') {
+    return SpreadsheetApp.openById(MASTER_SS_ID);
+  }
+
+  // วิธี 2: ดึง ID จาก Script Properties (กรณีเคยสร้างไว้แล้ว)
+  const props   = PropertiesService.getScriptProperties();
+  const savedId = props.getProperty('MASTER_SS_ID');
+  if (savedId) {
+    return SpreadsheetApp.openById(savedId);
+  }
+
+  // วิธี 3: สร้าง Master Sheet ใหม่อัตโนมัติ (ครั้งแรกเท่านั้น)
+  const newSS = SpreadsheetApp.create('Pre-Post Test — Master Sheet');
+  props.setProperty('MASTER_SS_ID', newSS.getId());
+
+  try {
+    const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    const newFile = DriveApp.getFileById(newSS.getId());
+    folder.addFile(newFile);
+    DriveApp.getRootFolder().removeFile(newFile);
+  } catch(folderErr) {
+    Logger.log('folder move error (master): ' + folderErr.message);
+  }
+
+  Logger.log('★ สร้าง Master Sheet ใหม่ ID: ' + newSS.getId());
+  Logger.log('★ กรุณาก็อป ID นี้ไปใส่ใน MASTER_SS_ID ด้านบนด้วย');
+  return newSS;
+}
+
+function getMasterSheet(name) {
+  const ss = getMasterSS();
+  if (!ss) throw new Error('ไม่พบ Master Spreadsheet กรุณาตั้งค่า MASTER_SS_ID ใน Code.gs');
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (name === MASTER_SHEET_NAMES.CONFIG) {
+      sh.appendRow(['key', 'value']);
+    } else if (name === MASTER_SHEET_NAMES.TEMPLATES) {
+      sh.appendRow(['templateId', 'title', 'sheetId', 'sheetUrl', 'shareToken', 'shareUrl', 'createdAt', 'questionCount']);
+    }
+  }
+  return sh;
+}
+
+// ── Config (master) ───────────────────────────────────────────
+function getConfig(key) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) return data[i][1];
+  }
+  return null;
+}
+
+function setConfig(key, value) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) {
+      sh.getRange(i + 1, 2).setValue(value);
+      return;
+    }
+  }
+  sh.appendRow([key, value]);
+}
+
+// ── Template registry ─────────────────────────────────────────
+function registerTemplate(templateId, title, sheetId, sheetUrl, shareToken, shareUrl, questionCount) {
+  const sh = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  sh.appendRow([templateId, title, sheetId, sheetUrl, shareToken, shareUrl, new Date().toISOString(), questionCount]);
+}
+
+function getTemplateRow(templateId) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === templateId) return { row: i + 1, data: data[i] };
+  }
+  return null;
+}
+
+function getTemplateTitleById(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    return found ? found.data[1] : 'แบบทดสอบ';
+  } catch(e) {
+    Logger.log('getTemplateTitleById error: ' + e.message);
+    return 'แบบทดสอบ';
+  }
+}
+
+// ── Get all templates ─────────────────────────────────────────
+function getTemplates() {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    const templates = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+templates.push({
+        templateId:    data[i][0],
+        title:         data[i][1],
+        sheetId:       data[i][2],
+        sheetUrl:      data[i][3],
+        shareToken:    data[i][4],
+        shareUrl:      data[i][5],
+        createdAt:     data[i][6],
+        questionCount: data[i][7],
+        coverImageId:  data[i][8] || '',
+        coverImageUrl: data[i][9] || ''
+      });
+    }
+    return { success: true, templates: templates.reverse() };
+  } catch(e) {
+    Logger.log('getTemplates error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Save questions → create new Sheet in Drive ─────────────────
+function saveQuestions(payload) {
+  try {
+    const parsed    = JSON.parse(payload);
+    const questions = parsed.questions;
+    const quizTitle = (parsed.title        || 'แบบทดสอบ').trim();
+    const tplName   = quizTitle;
+
+    // 1. สร้าง Spreadsheet ใหม่
+    const fileName = tplName + ' — ' + Utilities.formatDate(
+      new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm'
+    );
+    const newSS = SpreadsheetApp.create(fileName);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1000);
+
+    // 2. ย้ายไปยัง Drive folder
+    try {
+      const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+      const newFile = DriveApp.getFileById(newSS.getId());
+      folder.addFile(newFile);
+      DriveApp.getRootFolder().removeFile(newFile);
+    } catch(folderErr) {
+      Logger.log('folder move error: ' + folderErr.message);
+    }
+
+    // 3. เปิด Spreadsheet ใหม่ผ่าน ID (ป้องกัน reference หลุด)
+    const ss     = SpreadsheetApp.openById(newSS.getId());
+    const sheets = ss.getSheets();
+
+    // 4. ตั้งชื่อ Sheet แรกเป็น Questions
+    const qSheet = sheets[0];
+    qSheet.setName('Questions');
+    qSheet.clearContents();
+    qSheet.appendRow(['id', 'type', 'questionText', 'choices', 'correctAnswer', 'createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i + 1,
+        q.type         || 'mc',
+        q.questionText || '',
+        JSON.stringify(q.choices       || []),
+        JSON.stringify(q.correctAnswer !== undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+    SpreadsheetApp.flush();
+
+    // 5. สร้าง Responses sheet
+    let respSheet = ss.getSheetByName('Responses');
+    if (!respSheet) respSheet = ss.insertSheet('Responses');
+    respSheet.clearContents();
+    respSheet.appendRow(['timestamp', 'name', 'phone', 'testType', 'answers', 'score', 'total', 'percent']);
+    SpreadsheetApp.flush();
+
+    // 6. สร้าง Info sheet
+    let infoSheet = ss.getSheetByName('Info');
+    if (!infoSheet) infoSheet = ss.insertSheet('Info');
+    infoSheet.clearContents();
+
+    // 7. สร้าง token และ URL
+    const templateId = Utilities.getUuid();
+    const shareToken = Utilities.getUuid();
+    const deployUrl  = ScriptApp.getService().getUrl();
+    const shareUrl   = deployUrl + '?page=student&templateId=' + templateId + '&token=' + shareToken;
+
+    infoSheet.appendRow(['key',          'value']);
+    infoSheet.appendRow(['title',        quizTitle]);
+    infoSheet.appendRow(['templateName', tplName]);
+    infoSheet.appendRow(['templateId',   templateId]);
+    infoSheet.appendRow(['shareToken',   shareToken]);
+    infoSheet.appendRow(['shareUrl',     shareUrl]);
+    infoSheet.appendRow(['createdAt',    new Date().toISOString()]);
+    SpreadsheetApp.flush();
+
+    // 8. ลงทะเบียนใน master Templates sheet
+    registerTemplate(
+      templateId, quizTitle, ss.getId(),
+      ss.getUrl(), shareToken, shareUrl, questions.length
+    );
+
+    return {
+      success:    true,
+      shareUrl:   shareUrl,
+      sheetUrl:   ss.getUrl(),
+      templateId: templateId
+    };
+
+  } catch(e) {
+    Logger.log('saveQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Get questions for student (by templateId) ─────────────────
+function getQuestionsForTemplate(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบนี้' };
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+    const data    = qSheet.getDataRange().getValues();
+    const questions = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      questions.push({
+        id:            data[i][0],
+        type:          data[i][1],
+        questionText:  data[i][2],
+        choices:       JSON.parse(data[i][3] || '[]'),
+        correctAnswer: JSON.parse(data[i][4] !== '' ? data[i][4] : 'null')
+      });
+    }
+    const title         = found.data[1];
+    const coverImageUrl = found.data[9] || '';
+    return { success: true, questions: questions, title: title, coverImageUrl: coverImageUrl };
+  } catch(e) {
+    Logger.log('getQuestionsForTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Submit response ───────────────────────────────────────────
+function submitResponse(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const name       = parsed.name;
+    const phone      = parsed.phone;
+    const testType   = parsed.testType;
+    const answers    = parsed.answers;
+    const templateId = parsed.templateId;
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบ' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const qSheet    = ss.getSheetByName('Questions');
+
+    // ตรวจสอบซ้ำ
+    const respData = respSheet.getDataRange().getValues();
+    let preCount = 0, postCount = 0;
+    for (let i = 1; i < respData.length; i++) {
+      if (String(respData[i][2]) === String(phone)) {
+        if (respData[i][3] === 'pre')  preCount++;
+        if (respData[i][3] === 'post') postCount++;
+      }
+    }
+    if (testType === 'pre'  && preCount  >= 1) return { success: false, error: 'คุณได้ทำ Pre-test แล้ว' };
+    if (testType === 'post' && postCount >= 1) return { success: false, error: 'คุณได้ทำ Post-test แล้ว' };
+    if (testType === 'post' && preCount  === 0) return { success: false, error: 'กรุณาทำ Pre-test ก่อน' };
+
+    // คำนวณคะแนน
+    const qData = qSheet.getDataRange().getValues();
+    let score = 0, gradable = 0;
+    for (let i = 1; i < qData.length; i++) {
+      const type    = qData[i][1];
+      const correct = JSON.parse(qData[i][4] !== '' ? qData[i][4] : 'null');
+      const given   = answers[i - 1];
+      if (type === 'text') continue;
+      gradable++;
+      if (type === 'mc' || type === 'dropdown') {
+        if (String(given) === String(correct)) score++;
+      } else if (type === 'checkbox') {
+        const correctArr = Array.isArray(correct) ? correct.map(String).sort() : [];
+        const givenArr   = Array.isArray(given)   ? given.map(String).sort()   : [];
+        if (JSON.stringify(correctArr) === JSON.stringify(givenArr)) score++;
+      }
+    }
+    const total   = gradable;
+    const percent = total > 0 ? Math.round((score / total) * 100) : 0;
+
+    respSheet.appendRow([
+      new Date().toISOString(),
+      name, phone, testType,
+      JSON.stringify(answers),
+      score, total, percent
+    ]);
+
+    return { success: true, score: score, total: total, percent: percent };
+  } catch(e) {
+    Logger.log('submitResponse error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Summary for specific template ─────────────────────────────
+function getTemplateSummary(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const data      = respSheet.getDataRange().getValues();
+
+    const pre = [], post = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const row = {
+        name:    data[i][1],
+        phone:   String(data[i][2]),
+        score:   parseInt(data[i][5])   || 0,
+        total:   parseInt(data[i][6])   || 0,
+        percent: parseFloat(data[i][7]) || 0
+      };
+      if (data[i][3] === 'pre')       pre.push(row);
+      else if (data[i][3] === 'post') post.push(row);
+    }
+
+    const avg = function(arr) {
+      return arr.length
+        ? Math.round(arr.reduce(function(s, r) { return s + r.percent; }, 0) / arr.length)
+        : 0;
+    };
+
+    return {
+      success:  true,
+      title:    found.data[1],
+      sheetUrl: found.data[3],
+      shareUrl: found.data[5],
+      pre:  { count: pre.length,  avgPercent: avg(pre),  rows: pre  },
+      post: { count: post.length, avgPercent: avg(post), rows: post }
+    };
+  } catch(e) {
+    Logger.log('getTemplateSummary error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Delete template ───────────────────────────────────────────
+function deleteTemplate(templateId) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const sheetId = data[i][2];
+        // ลบ Google Sheet ใน Drive ด้วย
+        try {
+          DriveApp.getFileById(sheetId).setTrashed(true);
+        } catch(driveErr) {
+          Logger.log('drive delete error: ' + driveErr.message);
+        }
+        sh.deleteRow(i + 1);
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    Logger.log('deleteTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+// ── Delete multiple templates ──────────────────────────────────
+function deleteTemplates(templateIds) {
+  try {
+    const results = [];
+    for (let i = 0; i < templateIds.length; i++) {
+      const res = deleteTemplate(templateIds[i]);
+      results.push({ id: templateIds[i], success: res.success });
+    }
+    return { success: true, results: results };
+  } catch(e) {
+    Logger.log('deleteTemplates error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Update questions in existing template ──────────────────────
+function updateQuestions(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const templateId = parsed.templateId;
+    const questions  = parsed.questions;
+    const quizTitle  = (parsed.title || 'แบบทดสอบ').trim();
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+
+    // ล้างข้อมูลเก่าแล้วเขียนใหม่
+    qSheet.clearContents();
+    qSheet.appendRow(['id','type','questionText','choices','correctAnswer','createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i + 1,
+        q.type         || 'mc',
+        q.questionText || '',
+        JSON.stringify(q.choices       || []),
+        JSON.stringify(q.correctAnswer !== undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+
+    // อัปเดตชื่อและจำนวนคำถามใน Info sheet
+    const infoSheet = ss.getSheetByName('Info');
+    if (infoSheet) {
+      const infoData = infoSheet.getDataRange().getValues();
+      for (let i = 1; i < infoData.length; i++) {
+        if (infoData[i][0] === 'title') infoSheet.getRange(i+1,2).setValue(quizTitle);
+      }
+    }
+
+    // อัปเดตใน Master Templates sheet
+    const sh       = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const masterData = sh.getDataRange().getValues();
+    for (let i = 1; i < masterData.length; i++) {
+      if (masterData[i][0] === templateId) {
+        sh.getRange(i+1, 2).setValue(quizTitle);        // title
+        sh.getRange(i+1, 8).setValue(questions.length); // questionCount
+        break;
+      }
+    }
+
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch(e) {
+    Logger.log('updateQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+// ── Upload cover image ─────────────────────────────────────────
+function uploadCoverImage(base64Data, mimeType, templateId) {
+  try {
+    const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    const blob    = Utilities.newBlob(
+      Utilities.base64Decode(base64Data), mimeType, 'cover_' + templateId
+    );
+    const file    = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId  = file.getId();
+    const fileUrl = 'https://lh3.googleusercontent.com/d/' + fileId;
+
+    // บันทึก fileId ลง Master sheet
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        // column 9 (index 8) = coverImageId
+        // ลบรูปเก่าก่อน
+        const oldId = data[i][8];
+        if (oldId) {
+          try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {}
+        }
+        sh.getRange(i + 1, 9).setValue(fileId);
+        sh.getRange(i + 1, 10).setValue(fileUrl);
+        break;
+      }
+    }
+    return { success: true, fileId: fileId, fileUrl: fileUrl };
+  } catch(e) {
+    Logger.log('uploadCoverImage error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Delete cover image ─────────────────────────────────────────
+function deleteCoverImage(templateId) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const oldId = data[i][8];
+        if (oldId) {
+          try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {}
+          sh.getRange(i + 1, 9).setValue('');
+          sh.getRange(i + 1, 10).setValue('');
+        }
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><?= page === 'student' ? quizTitle : 'ระบบสร้างแบบทดสอบ' ?></title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Noto+Sans+Thai:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<style>
+  /* Export buttons */
+.btn-pdf{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;}
+.btn-pdf:hover{background:#fee2e2;color:#b91c1c;}
+.btn-word{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;}
+.btn-word:hover{background:#dbeafe;color:#1d4ed8;}
+:root {
+  --primary:   #2563eb; --primary-l: #eff6ff; --primary-d: #1d4ed8;
+  --success:   #059669; --success-l: #ecfdf5;
+  --danger:    #dc2626; --danger-l:  #fef2f2;
+  --warning:   #d97706; --warning-l: #fffbeb;
+  --purple:    #7c3aed; --purple-l:  #f5f3ff;
+  --orange:    #ea580c; --orange-l:  #fff7ed;
+  --bg:        #f8fafc; --bg2:       #f1f5f9;
+  --card:      #ffffff; --border:    #e2e8f0;
+  --text:      #0f172a; --text2:     #475569; --text3: #94a3b8;
+  --radius:    14px;    --radius-sm: 8px;
+  --shadow:    0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 24px rgba(37,99,235,.1);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Sarabun','Noto Sans Thai',sans-serif;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh;}
+
+.topbar{background:linear-gradient(135deg,#1e40af 0%,#2563eb 60%,#3b82f6 100%);color:#fff;padding:0 24px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(37,99,235,.35);}
+.topbar-left{display:flex;align-items:center;gap:10px;}
+.topbar-logo{width:32px;height:32px;background:rgba(255,255,255,.2);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;}
+.topbar h1{font-size:16px;font-weight:700;}
+.nav-tabs{display:flex;gap:3px;}
+.nav-btn{background:rgba(255,255,255,.13);border:none;color:rgba(255,255,255,.85);padding:7px 15px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:500;transition:all .18s;white-space:nowrap;}
+.nav-btn:hover,.nav-btn.active{background:rgba(255,255,255,.25);color:#fff;}
+.nav-btn.red{background:rgba(220,38,38,.3);}
+.nav-btn.red:hover{background:rgba(220,38,38,.55);}
+
+.main{max-width:960px;margin:0 auto;padding:28px 20px 80px;}
+.section{display:none;}.section.active{display:block;}
+
+.card{background:var(--card);border-radius:var(--radius);border:1px solid var(--border);padding:22px 24px;box-shadow:var(--shadow);margin-bottom:18px;}
+.card-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.04em;}
+.card-title .dot{width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;}
+
+label{font-size:13px;font-weight:600;color:var(--text2);display:block;margin-bottom:6px;}
+input[type=text],input[type=number],textarea,select{width:100%;padding:10px 13px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:14px;color:var(--text);background:#fff;transition:border .15s,box-shadow .15s;outline:none;}
+input[type=text]:focus,input[type=number]:focus,textarea:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.1);}
+textarea{min-height:70px;resize:vertical;}
+
+.btn{display:inline-flex;align-items:center;gap:7px;padding:10px 20px;border-radius:var(--radius-sm);border:none;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:all .17s;white-space:nowrap;}
+.btn-primary{background:var(--primary);color:#fff;}
+.btn-primary:hover{background:var(--primary-d);box-shadow:var(--shadow-md);}
+.btn-success{background:var(--success);color:#fff;}
+.btn-success:hover{background:#047857;}
+.btn-danger{background:var(--danger);color:#fff;}
+.btn-outline{background:transparent;color:var(--primary);border:1.5px solid var(--primary);}
+.btn-outline:hover{background:var(--primary-l);}
+.btn-ghost{background:var(--bg2);color:var(--text2);border:none;}
+.btn-ghost:hover{background:var(--border);}
+.btn-sm{padding:6px 14px;font-size:13px;}
+.btn-xs{padding:4px 10px;font-size:12px;border-radius:6px;}
+button:disabled{opacity:.45;cursor:not-allowed;}
+
+/* Question Builder */
+.q-block{background:var(--card);border-radius:var(--radius);border:1.5px solid var(--border);padding:20px 22px;margin-bottom:14px;position:relative;transition:border .15s,box-shadow .15s;}
+.q-block:hover{border-color:#93c5fd;box-shadow:var(--shadow);}
+.q-top{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
+.q-badge{min-width:28px;height:28px;border-radius:7px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;}
+.q-top-input{flex:1;}
+.q-type-select{padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;font-weight:600;background:#fff;cursor:pointer;color:var(--text2);width:44px;min-width:unset;flex-shrink:0;text-align:center;appearance:none;-webkit-appearance:none;}
+.q-type-select:focus{border-color:var(--primary);}
+.q-del-btn{position:absolute;top:14px;right:14px;background:transparent;border:1px solid var(--border);color:var(--text3);width:28px;height:28px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .15s;flex-shrink:0;}
+.q-del-btn:hover{background:var(--danger-l);border-color:var(--danger);color:var(--danger);}
+
+.choices-wrap{display:flex;flex-direction:column;gap:7px;margin-top:10px;}
+.choice-row{display:flex;align-items:center;gap:8px;}
+.choice-mark{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;transition:all .15s;font-size:11px;}
+.choice-mark.correct{background:var(--success);border-color:var(--success);color:#fff;}
+.choice-mark.chk{border-radius:5px;}
+.choice-mark.chk.correct{background:var(--success);border-color:var(--success);color:#fff;}
+.choice-row input[type=text]{flex:1;}
+.choice-del-btn{background:transparent;border:1px solid var(--border);color:var(--text3);width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .15s;}
+.choice-del-btn:hover{background:var(--danger-l);border-color:var(--danger);color:var(--danger);}
+.correct-badge{font-size:11px;color:var(--success);font-weight:700;background:var(--success-l);padding:2px 8px;border-radius:20px;white-space:nowrap;}
+.type-hint{font-size:12px;color:var(--text3);background:var(--bg2);padding:8px 12px;border-radius:8px;margin-top:10px;display:flex;align-items:center;gap:6px;}
+.add-q-bar{display:flex;align-items:center;gap:10px;padding:14px 0;border-top:2px dashed var(--border);margin-top:4px;}
+
+.share-box{background:var(--primary-l);border:1.5px solid #bfdbfe;border-radius:10px;padding:16px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.share-box input{flex:1;min-width:200px;background:#fff;}
+.share-link-label{font-size:13px;font-weight:700;color:var(--primary);white-space:nowrap;}
+
+/* Templates */
+.tpl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+.tpl-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:18px 20px;transition:all .2s;position:relative;}
+.tpl-card:hover{border-color:#93c5fd;box-shadow:var(--shadow-md);transform:translateY(-2px);}
+.tpl-card-title{font-size:15px;font-weight:700;margin-bottom:6px;}
+.tpl-card-meta{font-size:12px;color:var(--text3);margin-bottom:12px;display:flex;gap:12px;flex-wrap:wrap;}
+.tpl-actions{display:flex;gap:7px;flex-wrap:wrap;}
+.tpl-new-badge{position:absolute;top:12px;right:12px;background:var(--success);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;}
+
+/* Summary */
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;}
+.stat-lbl{font-size:11px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;}
+.stat-val{font-size:28px;font-weight:800;}
+.stat-val.pre{color:var(--primary);}.stat-val.post{color:var(--success);}
+.stat-val.up{color:var(--success);}.stat-val.down{color:var(--danger);}.stat-val.same{color:var(--warning);}
+.bar-wrap{margin:18px 0;}
+.bar-lbl{font-size:13px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between;}
+.bar-track{background:var(--bg2);border-radius:8px;height:22px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:8px;transition:width .8s cubic-bezier(.4,0,.2,1);display:flex;align-items:center;justify-content:flex-end;padding-right:10px;font-size:12px;font-weight:700;color:#fff;min-width:32px;}
+.bar-pre{background:linear-gradient(90deg,#60a5fa,#2563eb);}
+.bar-post{background:linear-gradient(90deg,#34d399,#059669);}
+.rtable{width:100%;border-collapse:collapse;font-size:13px;}
+.rtable th{background:var(--bg2);padding:9px 12px;text-align:left;font-weight:700;color:var(--text2);border-bottom:1.5px solid var(--border);font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+.rtable td{padding:9px 12px;border-bottom:1px solid var(--border);}
+.rtable tr:last-child td{border-bottom:none;}
+.rtable tr:hover td{background:#fafafa;}
+.pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.pill-pre{background:var(--primary-l);color:var(--primary);}
+.pill-post{background:var(--success-l);color:var(--success);}
+.sum-selector{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.sum-selector label{margin:0;font-size:14px;font-weight:700;white-space:nowrap;}
+.sum-selector select{flex:1;min-width:200px;}
+
+/* Student */
+.step{display:none;}.step.active{display:block;}
+.type-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;}
+.type-card{background:var(--card);border:2.5px solid var(--border);border-radius:var(--radius);padding:28px 16px;cursor:pointer;text-align:center;transition:all .2s;}
+.type-card:hover{border-color:#93c5fd;transform:translateY(-2px);box-shadow:var(--shadow-md);}
+.type-card.sel-pre{border-color:var(--primary);background:var(--primary-l);}
+.type-card.sel-post{border-color:var(--success);background:var(--success-l);}
+.type-icon{font-size:42px;margin-bottom:12px;}
+.type-lbl{font-size:20px;font-weight:800;margin-bottom:6px;}
+.type-card.sel-pre .type-lbl{color:var(--primary);}
+.type-card.sel-post .type-lbl{color:var(--success);}
+.type-desc{font-size:13px;color:var(--text2);line-height:1.6;}
+.pill-big{display:inline-block;padding:5px 16px;border-radius:20px;font-size:12px;font-weight:700;margin-top:12px;}
+.pill-big-pre{background:var(--primary);color:#fff;}
+.pill-big-post{background:var(--success);color:#fff;}
+
+.sq-card{background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:14px;}
+.sq-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;}
+.sq-num{background:var(--primary);color:#fff;min-width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;margin-top:2px;}
+.sq-text{font-size:15px;font-weight:600;line-height:1.6;}
+.sq-type-badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;}
+.sq-mc   .sq-type-badge{background:var(--primary-l);color:var(--primary);}
+.sq-chk  .sq-type-badge{background:var(--purple-l);color:var(--purple);}
+.sq-drop .sq-type-badge{background:var(--orange-l);color:var(--orange);}
+.sq-txt  .sq-type-badge{background:var(--bg2);color:var(--text2);}
+
+.opt-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:9px;padding:11px 14px;margin-bottom:8px;cursor:pointer;transition:all .15s;background:#fafbfc;}
+.opt-row:hover{border-color:#93c5fd;background:var(--primary-l);}
+.opt-row.sel{border-color:var(--primary);background:var(--primary-l);}
+.opt-row input{accent-color:var(--primary);width:16px;height:16px;flex-shrink:0;}
+.opt-letter{font-weight:700;color:var(--text2);min-width:22px;font-size:13px;}
+.chk-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--border);border-radius:9px;padding:11px 14px;margin-bottom:8px;cursor:pointer;transition:all .15s;background:#fafbfc;}
+.chk-row:hover{border-color:#c4b5fd;background:var(--purple-l);}
+.chk-row.sel{border-color:var(--purple);background:var(--purple-l);}
+.chk-row input{accent-color:var(--purple);width:16px;height:16px;flex-shrink:0;}
+.s-select{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit;font-size:14px;color:var(--text);background:#fff;outline:none;cursor:pointer;transition:border .15s;}
+.s-select:focus{border-color:var(--orange);}
+.s-textarea{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit;font-size:14px;color:var(--text);background:#fff;outline:none;resize:vertical;min-height:90px;transition:border .15s;}
+.s-textarea:focus{border-color:var(--primary);}
+
+.result-box{text-align:center;padding:40px 24px;}
+.r-icon{font-size:68px;margin-bottom:16px;line-height:1;}
+.r-pct{font-size:64px;font-weight:900;line-height:1;margin-bottom:8px;}
+.r-score{font-size:17px;color:var(--text2);margin-bottom:8px;}
+.r-msg{font-size:15px;color:var(--text3);margin-bottom:32px;}
+
+.loading{text-align:center;padding:48px;color:var(--text3);}
+.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:middle;margin-right:8px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.empty-state{text-align:center;padding:48px 24px;color:var(--text3);}
+.empty-icon{font-size:48px;margin-bottom:12px;}
+.empty-text{font-size:15px;}
+
+#toast{position:fixed;bottom:28px;right:28px;background:#0f172a;color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:500;z-index:9999;opacity:0;transform:translateY(12px);transition:all .25s;pointer-events:none;max-width:320px;}
+#toast.show{opacity:1;transform:translateY(0);}
+#toast.success{background:var(--success);}
+#toast.error{background:var(--danger);}
+
+.row-flex{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+/* Cover Image */
+.cover-upload-area{position:relative;width:100%;height:300px;border-radius:10px;overflow:hidden;background:linear-gradient(135deg,#eff6ff,#dbeafe);border:2px dashed #93c5fd;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;margin-bottom:16px;}
+.cover-upload-area:hover{border-color:var(--primary);background:linear-gradient(135deg,#dbeafe,#bfdbfe);}
+.cover-upload-area.has-image{border:none;cursor:default;}
+.cover-upload-icon{font-size:36px;margin-bottom:8px;}
+.cover-upload-text{font-size:14px;font-weight:600;color:var(--primary);}
+.cover-upload-sub{font-size:12px;color:var(--text3);margin-top:4px;}
+.cover-img-preview{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.cover-img-overlay{position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;gap:10px;opacity:0;transition:opacity .2s;}
+.cover-upload-area:hover .cover-img-overlay{opacity:1;}
+.cover-crop-wrap{position:relative;width:100%;height:300px;border-radius:10px;overflow:hidden;background:#000;margin-bottom:16px;display:none;}
+.cover-crop-img{position:absolute;cursor:grab;user-select:none;touch-action:none;}
+.cover-crop-img:active{cursor:grabbing;}
+.cover-crop-controls{display:none;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
+.cover-crop-controls.show{display:flex;}
+@media(max-width:640px){
+  .topbar{padding:0 14px;}
+  .main{padding:16px 14px 60px;}
+  .nav-btn{padding:6px 10px;font-size:12px;}
+  .type-grid{gap:10px;}
+  .type-card{padding:20px 12px;}
+  .type-icon{font-size:32px;}
+  .type-lbl{font-size:16px;}
+  .tpl-grid{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<? if (page === 'admin') { ?>
+
+<!-- ══════════ ADMIN ══════════ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">📋</div>
+    <h1>ระบบสร้างแบบทดสอบ</h1>
+  </div>
+  <div class="nav-tabs">
+    <button class="nav-btn active" onclick="newForm(this)">✏️ สร้างคำถาม</button>
+    <button class="nav-btn" onclick="showTab('templates',this)">📁 เทมเพลต</button>
+    <button class="nav-btn" onclick="showTab('summary',this)">📊 สรุปผล</button>
+    <button class="nav-btn red" onclick="clearEditor()">🗑 เคลียร์</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <section id="sec-editor" class="section active">
+<div class="card" style="padding:0;overflow:hidden;">
+
+      <!-- Cover Image Area -->
+      <div id="cover-upload-area" class="cover-upload-area" onclick="triggerCoverUpload()" style="border-radius:12px 12px 0 0;margin-bottom:0;">
+        <div id="cover-placeholder">
+          <div style="text-align:center;">
+            <div class="cover-upload-icon">🖼️</div>
+            <div class="cover-upload-text">คลิกเพื่ออัพโหลดรูปปก</div>
+            <div class="cover-upload-sub">PNG, JPG ขนาดไม่เกิน 5MB</div>
+          </div>
+        </div>
+        <img id="cover-preview-img" class="cover-img-preview" style="display:none;" src="" alt="cover">
+        <div class="cover-img-overlay" id="cover-overlay" style="display:none;">
+          <button class="btn btn-sm" style="background:rgba(255,255,255,.9);color:var(--text);" onclick="event.stopPropagation();triggerCoverUpload()">🔄 เปลี่ยนรูป</button>
+          <button class="btn btn-sm" style="background:rgba(220,38,38,.85);color:#fff;" onclick="event.stopPropagation();removeCover()">🗑 ลบรูป</button>
+        </div>
+      </div>
+      <input type="file" id="cover-file-input" accept="image/*" style="display:none;" onchange="onCoverFileChange(event)">
+
+      <!-- Crop Controls -->
+      <div id="cover-crop-controls" class="cover-crop-controls" style="padding:12px 20px 0;">
+        <span style="font-size:13px;font-weight:600;color:var(--text2);">🎯 ลากรูปเพื่อปรับตำแหน่ง:</span>
+        <input type="range" id="cover-zoom" min="100" max="300" value="100" style="flex:1;min-width:100px;accent-color:var(--primary);" oninput="onZoomChange(this.value)">
+        <span id="zoom-val" style="font-size:12px;color:var(--text3);min-width:36px;">100%</span>
+        <button class="btn btn-success btn-sm" onclick="confirmCrop()">✅ ยืนยัน</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelCrop()">✕ ยกเลิก</button>
+      </div>
+
+      <!-- Crop Preview -->
+      <div id="cover-crop-wrap" class="cover-crop-wrap" style="margin:12px 20px 0;display:none;">
+        <img id="cover-crop-img" class="cover-crop-img" src="" alt="">
+      </div>
+
+      <!-- Form Fields -->
+      <div style="padding:20px 24px 22px;">
+        <div class="card-title" style="margin-bottom:14px;"><span class="dot"></span>ข้อมูลแบบทดสอบ</div>
+        <label>ชื่อแบบทดสอบ *</label>
+        <input type="text" id="quiz-title" placeholder="เช่น บทเรียนที่ 1 — แสงและเงา">
+      </div>
+
+    </div>
+
+    <div id="questions-area"></div>
+
+   <div class="add-q-bar">
+      <button class="btn btn-outline" onclick="addQuestionGuarded()">➕ เพิ่มคำถาม</button>
+      <span id="q-count" style="color:var(--text3);font-size:13px;">ยังไม่มีคำถาม</span>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="dot"></span>บันทึก &amp; สร้างลิงก์</div>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px;">ระบบจะสร้าง Google Sheet แยกใหม่ใน Drive และบันทึกเป็น Template อัตโนมัติ</p>
+      <div class="row-flex" style="margin-bottom:18px;">
+        <button class="btn btn-primary" id="save-btn" onclick="saveQuiz()">💾 บันทึกและสร้างลิงก์</button>
+        <button class="btn btn-ghost" onclick="loadLastTemplate()">🔄 โหลดล่าสุด</button>
+      </div>
+      <div id="share-area" style="display:none;">
+        <div class="share-box">
+          <span class="share-link-label">🔗 ลิงก์นักเรียน:</span>
+          <input type="text" id="share-url" readonly>
+          <button class="btn btn-primary btn-sm" onclick="copyLink('share-url')">📋 คัดลอก</button>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;">
+          <a id="sheet-link" href="#" target="_blank" class="btn btn-ghost btn-sm">📊 เปิด Google Sheet</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-templates" class="section">
+    <div class="row-flex" style="margin-bottom:18px;">
+      <h2 style="font-size:17px;font-weight:700;flex:1;">📁 เทมเพลตทั้งหมด</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadTemplates()">🔄 รีเฟรช</button>
+    </div>
+    <div id="tpl-body"><div class="loading"><span class="spinner"></span>กำลังโหลด...</div></div>
+  </section>
+
+  <section id="sec-summary" class="section">
+    <div class="sum-selector">
+      <label>📊 เลือกเทมเพลตที่ต้องการดูผล:</label>
+      <select id="sum-select" onchange="loadSummaryFor(this.value)">
+        <option value="">— เลือกแบบทดสอบ —</option>
+      </select>
+      <button class="btn btn-outline btn-sm" onclick="refreshSumSelect()">🔄</button>
+    </div>
+    <div id="summary-body">
+      <div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">เลือกเทมเพลตด้านบนเพื่อดูผลสรุป</div></div>
+    </div>
+  </section>
+
+</div>
+<div id="toast"></div>
+
+<script>
+/* ━━ STATE ━━ */
+let questions      = [];
+let qIdSeq         = 0;
+let _lastSavedCount    = 0;
+let _lastSavedTitle    = '';
+let _editingTemplateId = null;
+
+function _isDirty() {
+  if (!questions.length) return false;
+  const currentTitle = document.getElementById('quiz-title').value.trim();
+  return questions.length !== _lastSavedCount || currentTitle !== _lastSavedTitle;
+}
+
+function addQuestionGuarded() {
+  addQuestion();
+}
+const Q_TYPES = [
+  { val:'mc',       label:'🔘', fullLabel:'หลายตัวเลือก (MC)',     hint:'นักเรียนเลือกคำตอบได้ 1 ข้อ' },
+  { val:'checkbox', label:'☑️', fullLabel:'ช่องทำเครื่องหมาย',   hint:'นักเรียนเลือกได้มากกว่า 1 ข้อ' },
+  { val:'dropdown', label:'🔽', fullLabel:'ดรอปดาวน์',            hint:'เลือก 1 คำตอบจากเมนูแบบดรอป' },
+  { val:'text',     label:'✏️', fullLabel:'การบรรยาย (ข้อเขียน)', hint:'นักเรียนพิมพ์คำตอบเอง ไม่ตรวจอัตโนมัติ' }
+];
+
+/* ━━ TABS ━━ */
+function showTab(tab, btn) {
+  document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn:not(.red)').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('sec-'+tab).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (tab==='templates') loadTemplates();
+  if (tab==='summary')   refreshSumSelect();
+}
+/* ━━ NEW FORM ━━ */
+function newForm(btn) {
+  if (_isDirty()) {
+    const ok = confirm(
+      '⚠️ มีข้อมูลที่ยังไม่ได้บันทึก ' + questions.length + ' ข้อ\n\n' +
+      'กด "ตกลง" → ล้างและเริ่มฟอร์มใหม่\n' +
+      'กด "ยกเลิก" → กลับไปบันทึกก่อน'
+    );
+    if (!ok) { showTab('editor', btn); return; }
+  }
+  // reset ทุกอย่าง
+  questions          = [];
+  qIdSeq             = 0;
+  _lastSavedCount    = 0;
+  _lastSavedTitle    = '';
+  _editingTemplateId = null;
+  document.getElementById('quiz-title').value         = '';
+  document.getElementById('share-area').style.display = 'none';
+  // reset ปุ่มบันทึกกลับโหมดปกติ
+  const saveBtn = document.getElementById('save-btn');
+  saveBtn.textContent = '💾 บันทึกและสร้างลิงก์';
+  saveBtn.onclick     = saveQuiz;
+  saveBtn.disabled    = false;
+  renderQuestions();
+  showTab('editor', btn);
+  // เพิ่มคำถามแรกให้อัตโนมัติ
+  addQuestion();
+  toast('เริ่มฟอร์มใหม่แล้ว ✅', 'success');
+}
+/* ━━ COVER IMAGE ━━ */
+let _coverBase64   = null;
+let _coverMime     = null;
+let _coverFileUrl  = null;
+let _dragStartX    = 0;
+let _dragStartY    = 0;
+let _imgOffsetX    = 0;
+let _imgOffsetY    = 0;
+let _dragging      = false;
+let _zoomLevel     = 100;
+let _originalBase64 = null;
+let _originalMime   = null;
+
+function triggerCoverUpload() {
+  document.getElementById('cover-file-input').click();
+}
+
+function onCoverFileChange(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 5MB', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const dataUrl = ev.target.result;
+    _originalBase64 = dataUrl.split(',')[1];
+    _originalMime   = file.type;
+    showCropUI(dataUrl);
+  };
+  reader.readAsDataURL(file);
+  // reset input ให้อัพโหลดไฟล์เดิมซ้ำได้
+  e.target.value = '';
+}
+
+function showCropUI(dataUrl) {
+  // แสดง crop area
+  const cropWrap = document.getElementById('cover-crop-wrap');
+  const cropImg  = document.getElementById('cover-crop-img');
+  const controls = document.getElementById('cover-crop-controls');
+  cropImg.src    = dataUrl;
+  _imgOffsetX    = 0;
+  _imgOffsetY    = 0;
+  _zoomLevel     = 100;
+  document.getElementById('cover-zoom').value = 100;
+  document.getElementById('zoom-val').textContent = '100%';
+  cropWrap.style.display   = 'block';
+  controls.style.display   = 'flex';
+  // ซ่อน upload area ชั่วคราว
+  document.getElementById('cover-upload-area').style.display = 'none';
+  // ตั้ง drag events
+  cropImg.style.transform = 'translate(0px,0px) scale(1)';
+  setupDrag(cropImg);
+}
+
+function setupDrag(img) {
+  img.onmousedown = function(e) {
+    _dragging  = true;
+    _dragStartX = e.clientX - _imgOffsetX;
+    _dragStartY = e.clientY - _imgOffsetY;
+    e.preventDefault();
+  };
+  document.onmousemove = function(e) {
+    if (!_dragging) return;
+    _imgOffsetX = e.clientX - _dragStartX;
+    _imgOffsetY = e.clientY - _dragStartY;
+    updateCropTransform();
+  };
+  document.onmouseup = function() { _dragging = false; };
+  // Touch support
+  img.ontouchstart = function(e) {
+    _dragging   = true;
+    _dragStartX = e.touches[0].clientX - _imgOffsetX;
+    _dragStartY = e.touches[0].clientY - _imgOffsetY;
+  };
+  img.ontouchmove = function(e) {
+    if (!_dragging) return;
+    _imgOffsetX = e.touches[0].clientX - _dragStartX;
+    _imgOffsetY = e.touches[0].clientY - _dragStartY;
+    updateCropTransform();
+    e.preventDefault();
+  };
+  img.ontouchend = function() { _dragging = false; };
+}
+
+function onZoomChange(val) {
+  _zoomLevel = parseInt(val);
+  document.getElementById('zoom-val').textContent = val + '%';
+  updateCropTransform();
+}
+
+function updateCropTransform() {
+  const img = document.getElementById('cover-crop-img');
+  img.style.transform = 'translate(' + _imgOffsetX + 'px,' + _imgOffsetY + 'px) scale(' + (_zoomLevel/100) + ')';
+  img.style.transformOrigin = 'top left';
+}
+
+function confirmCrop() {
+  const cropImg = document.getElementById('cover-crop-img');
+  _coverBase64  = _originalBase64;
+  _coverMime    = _originalMime;
+
+  const area    = document.getElementById('cover-upload-area');
+  const preview = document.getElementById('cover-preview-img');
+  const overlay = document.getElementById('cover-overlay');
+  const ph      = document.getElementById('cover-placeholder');
+
+  // คำนวณ % position จาก offset และ zoom
+  const wrap     = document.getElementById('cover-crop-wrap');
+  const wrapW    = wrap.offsetWidth;
+  const wrapH    = wrap.offsetHeight;
+  const imgW     = cropImg.naturalWidth  * (_zoomLevel / 100);
+  const imgH     = cropImg.naturalHeight * (_zoomLevel / 100);
+
+  // แปลง offset เป็น object-position %
+  const maxX  = imgW - wrapW;
+  const maxY  = imgH - wrapH;
+  const posX  = maxX > 0 ? Math.min(100, Math.max(0, (-_imgOffsetX / maxX) * 100)) : 50;
+  const posY  = maxY > 0 ? Math.min(100, Math.max(0, (-_imgOffsetY / maxY) * 100)) : 50;
+
+  preview.src                    = cropImg.src;
+  preview.style.display          = 'block';
+  preview.style.transform        = 'none';
+  preview.style.transformOrigin  = 'unset';
+  preview.style.objectFit        = 'cover';
+  preview.style.objectPosition   = posX + '% ' + posY + '%';
+  preview.style.width            = '100%';
+  preview.style.height           = '100%';
+  preview.style.position         = 'absolute';
+  preview.style.inset            = '0';
+
+  overlay.style.display = 'flex';
+  ph.style.display      = 'none';
+  area.classList.add('has-image');
+  area.style.display    = 'flex';
+
+  document.getElementById('cover-crop-wrap').style.display    = 'none';
+  document.getElementById('cover-crop-controls').style.display = 'none';
+
+  toast('อัพโหลดรูปปกแล้ว กด 💾 บันทึกเพื่อบันทึกรูป', 'success');
+}
+
+function cancelCrop() {
+  document.getElementById('cover-crop-wrap').style.display   = 'none';
+  document.getElementById('cover-crop-controls').style.display = 'none';
+  document.getElementById('cover-upload-area').style.display = 'flex';
+  _originalBase64 = null;
+  _originalMime   = null;
+}
+
+function removeCover() {
+  if (!confirm('ลบรูปปกนี้?')) return;
+  _coverBase64  = null;
+  _coverMime    = null;
+  _coverFileUrl = null;
+  const area    = document.getElementById('cover-upload-area');
+  const preview = document.getElementById('cover-preview-img');
+  const overlay = document.getElementById('cover-overlay');
+  const ph      = document.getElementById('cover-placeholder');
+  preview.style.display = 'none';
+  overlay.style.display = 'none';
+  ph.style.display      = 'block';
+  area.classList.remove('has-image');
+  preview.style.transform = '';
+  toast('ลบรูปปกแล้ว', 'success');
+}
+
+function resetCoverUI() {
+  _coverBase64   = null;
+  _coverMime     = null;
+  _coverFileUrl  = null;
+  _originalBase64 = null;
+  _originalMime   = null;
+  const area    = document.getElementById('cover-upload-area');
+  const preview = document.getElementById('cover-preview-img');
+  const overlay = document.getElementById('cover-overlay');
+  const ph      = document.getElementById('cover-placeholder');
+  preview.style.display = 'none';
+  preview.style.transform = '';
+  overlay.style.display = 'none';
+  ph.style.display      = 'block';
+  area.classList.remove('has-image');
+  area.style.display    = 'flex';
+  document.getElementById('cover-crop-wrap').style.display   = 'none';
+  document.getElementById('cover-crop-controls').style.display = 'none';
+}
+
+function uploadCoverIfNeeded(templateId, callback) {
+  if (!_coverBase64 || !_coverMime) { callback(); return; }
+  toast('กำลังอัพโหลดรูปปก...', '');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        _coverFileUrl = res.fileUrl;
+        toast('อัพโหลดรูปปกสำเร็จ ✅', 'success');
+      } else {
+        toast('อัพโหลดรูปไม่สำเร็จ: ' + (res ? res.error : 'ไม่ทราบสาเหตุ'), 'error');
+      }
+      callback();
+    })
+    .withFailureHandler(function(err) {
+      toast('อัพโหลดรูปล้มเหลว: ' + (err ? err.message : ''), 'error');
+      callback();
+    })
+    .uploadCoverImage(_coverBase64, _coverMime, templateId);
+}
+/* ━━ SHARE POPUP ━━ */
+function showSharePopup(shareUrl) {
+  // สร้าง overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'share-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+  overlay.innerHTML =
+    '<div style="background:#fff;border-radius:16px;padding:32px 28px;max-width:480px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.2);">'+
+      '<div style="text-align:center;margin-bottom:20px;">'+
+        '<div style="font-size:48px;margin-bottom:10px;">🎉</div>'+
+        '<div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:6px;">บันทึกสำเร็จแล้ว!</div>'+
+        '<div style="font-size:13px;color:var(--text2);">คัดลอกลิงก์ด้านล่างเพื่อแชร์ให้นักเรียน</div>'+
+      '</div>'+
+      '<div style="background:var(--primary-l);border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:16px;">'+
+        '<div style="font-size:11px;font-weight:700;color:var(--primary);margin-bottom:8px;">🔗 ลิงก์สำหรับนักเรียน:</div>'+
+        '<input id="popup-url" type="text" readonly value="'+shareUrl+'" style="width:100%;background:#fff;border:1.5px solid #bfdbfe;border-radius:8px;padding:10px 12px;font-size:13px;color:var(--text);outline:none;">'+
+      '</div>'+
+      '<div style="display:flex;gap:10px;">'+
+        '<button onclick="copyPopupLink()" class="btn btn-primary" style="flex:1;">📋 คัดลอกลิงก์</button>'+
+        '<button onclick="closeSharePopup()" class="btn btn-success" style="flex:1;">✅ ตกลง</button>'+
+      '</div>'+
+    '</div>';
+
+  document.body.appendChild(overlay);
+
+  // คัดลอกอัตโนมัติ
+  setTimeout(function(){
+    const input = document.getElementById('popup-url');
+    if (input) input.select();
+  }, 100);
+}
+
+function copyPopupLink() {
+  const url = document.getElementById('popup-url').value;
+  navigator.clipboard.writeText(url).then(function(){
+    toast('คัดลอกลิงก์แล้ว ✅', 'success');
+  });
+}
+
+function closeSharePopup() {
+  const overlay = document.getElementById('share-overlay');
+  if (overlay) overlay.remove();
+  questions          = [];
+  qIdSeq             = 0;
+  _lastSavedCount    = 0;
+  _lastSavedTitle    = '';
+  _editingTemplateId = null;
+  document.getElementById('quiz-title').value         = '';
+  document.getElementById('share-area').style.display = 'none';
+  const saveBtn = document.getElementById('save-btn');
+  saveBtn.textContent = '💾 บันทึกและสร้างลิงก์';
+  saveBtn.onclick     = saveQuiz;
+  saveBtn.disabled    = false;
+  resetCoverUI();
+  renderQuestions();
+  addQuestion();
+  toast('พร้อมสร้างแบบทดสอบใหม่ ✅', 'success');
+}
+
+function clearEditor() {
+  if (!confirm('เคลียร์ข้อมูลในหน้าสร้างคำถาม?\n(ไม่ลบข้อมูลที่บันทึกไว้แล้ว)')) return;
+  questions = []; qIdSeq = 0;
+  document.getElementById('quiz-title').value = '';
+  document.getElementById('tpl-name').value   = '';
+  document.getElementById('share-area').style.display = 'none';
+  renderQuestions();
+  toast('เคลียร์หน้าสร้างคำถามแล้ว','success');
+}
+
+/* ━━ QUESTION ━━ */
+function addQuestion(data) {
+  const id = ++qIdSeq;
+  const q  = data || { id:id, type:'mc', questionText:'', choices:['','','',''], correctAnswer:0 };
+  if (!data) { q.id = id; questions.push(q); }
+  renderQuestions();
+  setTimeout(function(){
+    const el = document.getElementById('q-'+id);
+    if (el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  }, 100);
+}
+
+function removeQuestion(id) {
+  questions = questions.filter(function(q){ return q.id !== id; });
+  renderQuestions();
+}
+
+function renderQuestions() {
+  const area = document.getElementById('questions-area');
+  area.innerHTML = '';
+  questions.forEach(function(q, idx) {
+    const div = document.createElement('div');
+    div.className = 'q-block';
+    div.id = 'q-'+q.id;
+    const typeOptions = Q_TYPES.map(function(t){
+      return '<option value="'+t.val+'"'+(q.type===t.val?' selected':'')+'>'+t.label+'</option>';
+    }).join('');
+    const currentType = Q_TYPES.find(function(t){ return t.val===q.type; });
+    const typeTitle   = currentType ? currentType.fullLabel : '';
+    div.innerHTML =
+      '<button class="q-del-btn" onclick="removeQuestion('+q.id+')">✕</button>'+
+      '<div class="q-top">'+
+        '<div class="q-badge">'+(idx+1)+'</div>'+
+        '<input class="q-top-input" type="text" placeholder="พิมพ์คำถาม..." value="'+esc(q.questionText)+'" oninput="updateQ('+q.id+',\'questionText\',this.value)">'+
+        '<select class="q-type-select" onchange="changeType('+q.id+',this.value)" title="'+typeTitle+'">'+typeOptions+'</select>'+
+      '</div>'+
+      '<div id="q-body-'+q.id+'"></div>';
+    area.appendChild(div);
+    renderQBody(q);
+  });
+  document.getElementById('q-count').textContent =
+    questions.length ? questions.length+' คำถาม' : 'ยังไม่มีคำถาม';
+}
+
+function renderQBody(q) {
+  const body = document.getElementById('q-body-'+q.id);
+  if (!body) return;
+  const hint = (Q_TYPES.find(function(t){ return t.val===q.type; }) || {}).hint || '';
+
+  if (q.type==='mc' || q.type==='dropdown') {
+    let html = '<div class="choices-wrap" id="choices-'+q.id+'">';
+    q.choices.forEach(function(ch, ci){
+      const letter = String.fromCharCode(65+ci);
+      const isCorr = q.correctAnswer===ci;
+      html += '<div class="choice-row">'+
+        '<div class="choice-mark'+(isCorr?' correct':'')+'" onclick="setCorrectMC('+q.id+','+ci+')" title="คลิกเพื่อตั้งเป็นเฉลย">'+(isCorr?'✓':letter)+'</div>'+
+        '<input type="text" placeholder="ตัวเลือก '+letter+'..." value="'+esc(ch)+'" oninput="updateChoice('+q.id+','+ci+',this.value)">'+
+        (q.choices.length>2?'<button class="choice-del-btn" onclick="removeChoice('+q.id+','+ci+')">✕</button>':'')+
+        (isCorr?'<span class="correct-badge">✔ เฉลย</span>':'')+
+      '</div>';
+    });
+    html += '</div>'+
+      '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
+        (q.choices.length<6?'<button class="btn btn-outline btn-sm" onclick="addChoice('+q.id+')">➕ เพิ่มตัวเลือก</button>':'')+
+        '<span style="font-size:12px;color:var(--text3);">เฉลย: <strong style="color:var(--success)">ข้อ '+(q.correctAnswer+1)+'</strong></span>'+
+      '</div>'+
+      '<div class="type-hint">💡 '+hint+'</div>';
+    body.innerHTML = html;
+
+  } else if (q.type==='checkbox') {
+    const corrArr = Array.isArray(q.correctAnswer) ? q.correctAnswer : [];
+    let html = '<div class="choices-wrap" id="choices-'+q.id+'">';
+    q.choices.forEach(function(ch, ci){
+      const letter = String.fromCharCode(65+ci);
+      const isCorr = corrArr.includes(ci);
+      html += '<div class="choice-row">'+
+        '<div class="choice-mark chk'+(isCorr?' correct':'')+'" onclick="toggleCorrectChk('+q.id+','+ci+')" title="คลิกเพื่อเลือก/ยกเลิกเฉลย">'+(isCorr?'✓':letter)+'</div>'+
+        '<input type="text" placeholder="ตัวเลือก '+letter+'..." value="'+esc(ch)+'" oninput="updateChoice('+q.id+','+ci+',this.value)">'+
+        (q.choices.length>2?'<button class="choice-del-btn" onclick="removeChoice('+q.id+','+ci+')">✕</button>':'')+
+        (isCorr?'<span class="correct-badge">✔ เฉลย</span>':'')+
+      '</div>';
+    });
+    const corrLabels = corrArr.map(function(i){ return String.fromCharCode(65+i); }).join(', ') || 'ยังไม่ได้เลือก';
+    html += '</div>'+
+      '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'+
+        (q.choices.length<6?'<button class="btn btn-outline btn-sm" onclick="addChoice('+q.id+')">➕ เพิ่มตัวเลือก</button>':'')+
+        '<span style="font-size:12px;color:var(--text3);">เฉลย: <strong style="color:var(--success)">'+corrLabels+'</strong></span>'+
+      '</div>'+
+      '<div class="type-hint">💡 '+hint+' — คลิกที่วงกลมเพื่อเลือกหลายเฉลย</div>';
+    body.innerHTML = html;
+
+  } else if (q.type==='text') {
+    body.innerHTML = '<div class="type-hint" style="margin-top:8px;">✏️ '+hint+' — ไม่ต้องกำหนดเฉลย ตรวจโดยผู้สอน</div>';
+  }
+}
+
+function updateQ(id, field, val){ const q=questions.find(function(q){return q.id===id;}); if(q) q[field]=val; }
+function changeType(id, type){
+  const q=questions.find(function(q){return q.id===id;}); if(!q) return;
+  q.type=type;
+  if(type==='mc'||type==='dropdown'){
+    if(!Array.isArray(q.choices)||!q.choices.length) q.choices=['','','',''];
+    if(typeof q.correctAnswer!=='number') q.correctAnswer=0;
+  } else if(type==='checkbox'){
+    if(!Array.isArray(q.choices)||!q.choices.length) q.choices=['','','',''];
+    if(!Array.isArray(q.correctAnswer)) q.correctAnswer=[];
+  } else if(type==='text'){
+    q.correctAnswer=null;
+  }
+  renderQBody(q);
+}
+function updateChoice(qid,ci,val){ const q=questions.find(function(q){return q.id===qid;}); if(q) q.choices[ci]=val; }
+function setCorrectMC(qid,ci){ const q=questions.find(function(q){return q.id===qid;}); if(!q) return; q.correctAnswer=ci; renderQBody(q); }
+function toggleCorrectChk(qid,ci){
+  const q=questions.find(function(q){return q.id===qid;}); if(!q) return;
+  if(!Array.isArray(q.correctAnswer)) q.correctAnswer=[];
+  const idx=q.correctAnswer.indexOf(ci);
+  if(idx>-1) q.correctAnswer.splice(idx,1); else q.correctAnswer.push(ci);
+  q.correctAnswer.sort(function(a,b){return a-b;});
+  renderQBody(q);
+}
+function addChoice(qid){
+  const q=questions.find(function(q){return q.id===qid;}); if(!q||q.choices.length>=6) return;
+  q.choices.push(''); renderQBody(q);
+}
+function removeChoice(qid,ci){
+  const q=questions.find(function(q){return q.id===qid;}); if(!q||q.choices.length<=2) return;
+  q.choices.splice(ci,1);
+  if(q.type==='mc'&&q.correctAnswer>=q.choices.length) q.correctAnswer=0;
+  if(q.type==='checkbox') q.correctAnswer=(q.correctAnswer||[]).filter(function(i){return i<q.choices.length;});
+  renderQBody(q);
+}
+
+/* ━━ SAVE QUIZ ━━ */
+function saveQuiz() {
+  if (!questions.length) { toast('กรุณาเพิ่มคำถามอย่างน้อย 1 ข้อ','error'); return; }
+  const title = document.getElementById('quiz-title').value.trim();
+  if (!title) { toast('กรุณากรอกชื่อแบบทดสอบ','error'); return; }
+  for (var i=0; i<questions.length; i++) {
+    var q = questions[i];
+    if (!q.questionText.trim()) { toast('กรุณากรอกคำถามทุกข้อ','error'); return; }
+    if (q.type !== 'text') {
+      for (var j=0; j<(q.choices||[]).length; j++) {
+        if (!q.choices[j].trim()) { toast('กรุณากรอกตัวเลือกให้ครบ','error'); return; }
+      }
+    }
+  }
+  const tplName = title;
+ const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.onclick  = null;
+  btn.textContent = '⏳ กำลังสร้าง Sheet...';
+
+  // sanitize questions
+  const cleanQuestions = questions.map(function(q) {
+    return {
+      type:          q.type || 'mc',
+      questionText:  String(q.questionText || ''),
+      choices:       (q.choices || []).map(function(c){ return String(c||''); }),
+      correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : null
+    };
+  });
+
+const payload = JSON.stringify({
+    title:     title,
+    questions: cleanQuestions
+  });
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.textContent = '💾 บันทึกและสร้างลิงก์';
+      if (!res) {
+        toast('ไม่ได้รับข้อมูลกลับจาก Server','error');
+        return;
+      }
+      if (res.success) {
+    _lastSavedCount = questions.length;
+        _lastSavedTitle = document.getElementById('quiz-title').value.trim();
+        const _savedShareUrl = res.shareUrl || '';
+        const _savedTplId    = res.templateId || '';
+    if (_coverBase64 && _coverMime) {
+          btn.textContent = '⏳ กำลังอัพโหลดรูป...';
+          google.script.run
+            .withSuccessHandler(function(imgRes) {
+              if (imgRes && imgRes.success) _coverFileUrl = imgRes.fileUrl;
+              showSharePopup(_savedShareUrl);
+            })
+            .withFailureHandler(function() {
+              showSharePopup(_savedShareUrl);
+            })
+            .uploadCoverImage(_coverBase64, _coverMime, _savedTplId);
+        } else {
+          showSharePopup(_savedShareUrl);
+        }
+      } else {
+        toast('เกิดข้อผิดพลาด: '+(res.error||'ไม่ทราบสาเหตุ'),'error');
+      }
+    })
+  .withFailureHandler(function(err) {
+      btn.disabled    = false;
+      btn.textContent = '💾 บันทึกและสร้างลิงก์';
+      btn.onclick     = saveQuiz;
+      toast('เกิดข้อผิดพลาด: '+(err.message||'ไม่ทราบสาเหตุ'),'error');
+    })
+    .saveQuestions(payload);
+}
+
+function loadLastTemplate(){
+  toast('กำลังโหลด...');
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.success && res.templates && res.templates.length){
+        loadTemplateIntoEditor(res.templates[0].templateId);
+      } else {
+        toast('ยังไม่มีเทมเพลต','error');
+      }
+    })
+    .getTemplates();
+}
+
+function loadTemplateIntoEditor(templateId){
+  toast('กำลังโหลดคำถาม...');
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.success && res.questions && res.questions.length){
+        questions = res.questions.map(function(q){ return Object.assign({},q,{id:++qIdSeq}); });
+        document.getElementById('quiz-title').value = res.title || '';
+        renderQuestions();
+        toast('โหลด '+res.questions.length+' คำถามแล้ว','success');
+        showTab('editor', document.querySelector('.nav-btn'));
+      } else {
+        toast('ไม่พบคำถาม','error');
+      }
+    })
+    .getQuestionsForTemplate(templateId);
+}
+
+function copyLink(inputId){
+  const url = document.getElementById(inputId).value;
+  navigator.clipboard.writeText(url).then(function(){ toast('คัดลอกลิงก์แล้ว ✅','success'); });
+}
+
+/* ━━ TEMPLATES ━━ */
+function loadTemplates(){
+  document.getElementById('tpl-body').innerHTML = '<div class="loading"><span class="spinner"></span>กำลังโหลด...</div>';
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (!res || !res.success) {
+        document.getElementById('tpl-body').innerHTML = '<p style="color:var(--danger)">เกิดข้อผิดพลาด: '+(res?res.error:'')+'</p>';
+        return;
+      }
+      renderTemplatesList(res.templates);
+    })
+    .getTemplates();
+}
+
+function renderTemplatesList(templates){
+  const body = document.getElementById('tpl-body');
+  if (!templates || !templates.length) {
+    body.innerHTML = '<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-text">ยังไม่มีเทมเพลต กรุณาสร้างแบบทดสอบก่อน</div></div>';
+    return;
+  }
+  const now = Date.now();
+  let html =
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;padding:10px 14px;background:var(--bg2);border-radius:10px;">'+
+      '<input type="checkbox" id="chk-all" onchange="toggleSelectAll(this.checked)" style="width:16px;height:16px;accent-color:var(--danger);cursor:pointer;">'+
+      '<label for="chk-all" style="font-size:13px;font-weight:600;cursor:pointer;margin:0;">เลือกทั้งหมด</label>'+
+      '<button class="btn btn-xs" id="btn-delete-selected" style="background:var(--danger);color:#fff;display:none;" onclick="deleteSelected()">🗑 ลบที่เลือก</button>'+
+    '</div>'+
+    '<div class="tpl-grid">';
+
+  templates.forEach(function(t){
+    const d = new Date(t.createdAt);
+    const dateStr = isNaN(d) ? '' : d.toLocaleDateString('th-TH',{day:'2-digit',month:'short',year:'numeric'});
+    const isNew = (now - d.getTime()) < 86400000;
+ const coverHtml = t.coverImageUrl
+      ? '<div style="width:calc(100% + 40px);height:140px;border-radius:8px 8px 0 0;overflow:hidden;margin:-18px -20px 14px;background:#e2e8f0;">'+
+          '<img src="'+esc(t.coverImageUrl)+'" '+
+            'style="width:100%;height:100%;object-fit:cover;display:block;" '+
+            'onerror="this.parentElement.style.background=\'linear-gradient(135deg,#dbeafe,#bfdbfe)\';this.style.display=\'none\'">'+
+        '</div>'
+      : '<div style="width:calc(100% + 40px);height:6px;margin:-18px -20px 14px;background:linear-gradient(90deg,#2563eb,#3b82f6);border-radius:8px 8px 0 0;"></div>';
+
+    html +=
+      '<div class="tpl-card" id="tplcard-'+t.templateId+'" style="overflow:hidden;padding-top:18px;">'+
+        coverHtml+
+        '<div style="position:absolute;top:12px;left:12px;z-index:2;">'+
+          '<input type="checkbox" class="tpl-chk" value="'+t.templateId+'" onchange="onTplChkChange()" style="width:15px;height:15px;accent-color:var(--danger);cursor:pointer;'+(t.coverImageUrl?'filter:drop-shadow(0 0 2px rgba(0,0,0,.5));':'')+'" >'+
+        '</div>'+
+        (isNew?'<span class="tpl-new-badge" style="z-index:2;">ใหม่</span>':'')+
+        '<div class="tpl-card-title" style="padding-left:22px;">'+esc(t.title)+'</div>'+
+        '<div class="tpl-card-meta"><span>📝 '+t.questionCount+' คำถาม</span><span>📅 '+dateStr+'</span></div>'+
+       '<div class="tpl-actions">'+
+  '<button class="btn btn-outline btn-xs" onclick="viewSummaryFor(\''+t.templateId+'\')">📊 ดูผล</button>'+
+  '<button class="btn btn-ghost btn-xs" onclick="copyTplLink(\''+esc(t.shareUrl)+'\')">🔗 ลิงก์</button>'+
+  '<a href="'+esc(t.sheetUrl)+'" target="_blank" class="btn btn-ghost btn-xs">📊 Sheet</a>'+
+  '<button class="btn btn-xs" style="background:var(--primary-l);color:var(--primary);" onclick="editTpl(\''+t.templateId+'\')">✏️ แก้ไข</button>'+
+  '<button class="btn btn-xs btn-pdf" onclick="exportTplPDF(\''+t.templateId+'\',\''+esc(t.title)+'\')">📄 PDF</button>'+
+  '<button class="btn btn-xs btn-word" onclick="exportTplWord(\''+t.templateId+'\',\''+esc(t.title)+'\')">📝 Word</button>'+
+  '<button class="btn btn-xs" style="background:var(--danger-l);color:var(--danger);" onclick="deleteTpl(\''+t.templateId+'\')">🗑 ລົບ</button>'+
+'</div>'+
+      '</div>';
+  });
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function copyTplLink(url){
+  if(!url){ toast('ไม่มีลิงก์','error'); return; }
+  navigator.clipboard.writeText(url).then(function(){ toast('คัดลอกลิงก์แล้ว ✅','success'); });
+}
+
+function viewSummaryFor(templateId){
+  showTab('summary', null);
+  document.querySelectorAll('.nav-btn:not(.red)').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn')[2].classList.add('active');
+  refreshSumSelect(templateId);
+}
+
+function deleteTpl(templateId){
+  if(!confirm('ลบเทมเพลตนี้?\nระบบจะลบ Google Sheet ใน Drive ด้วย')) return;
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.success){ toast('ลบเทมเพลตและ Sheet แล้ว ✅','success'); loadTemplates(); }
+      else toast('เกิดข้อผิดพลาด: '+(res?res.error:''),'error');
+    })
+    .deleteTemplate(templateId);
+}
+
+/* ━━ SUMMARY ━━ */
+function refreshSumSelect(preselectId){
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res || !res.success) return;
+      const sel = document.getElementById('sum-select');
+      sel.innerHTML = '<option value="">— เลือกแบบทดสอบ —</option>';
+      res.templates.forEach(function(t){
+        const opt = document.createElement('option');
+        opt.value = t.templateId;
+        opt.textContent = t.title;
+        sel.appendChild(opt);
+      });
+      if(preselectId){
+        sel.value = preselectId;
+        loadSummaryFor(preselectId);
+      }
+    })
+    .getTemplates();
+}
+/* ━━ CHECKBOX & BULK DELETE ━━ */
+function onTplChkChange(){
+  const checked = document.querySelectorAll('.tpl-chk:checked');
+  const btnDel  = document.getElementById('btn-delete-selected');
+  if (btnDel) btnDel.style.display = checked.length ? 'inline-flex' : 'none';
+  const all  = document.querySelectorAll('.tpl-chk');
+  const chkAll = document.getElementById('chk-all');
+  if (chkAll) chkAll.checked = (checked.length === all.length && all.length > 0);
+}
+
+function toggleSelectAll(checked){
+  document.querySelectorAll('.tpl-chk').forEach(function(c){ c.checked = checked; });
+  const btnDel = document.getElementById('btn-delete-selected');
+  if (btnDel) btnDel.style.display = checked ? 'inline-flex' : 'none';
+}
+
+function deleteSelected(){
+  const checked = document.querySelectorAll('.tpl-chk:checked');
+  if (!checked.length) return;
+  if (!confirm('ลบ '+checked.length+' เทมเพลตที่เลือก?\nระบบจะลบ Google Sheet ใน Drive ทั้งหมดด้วย')) return;
+  const ids = Array.from(checked).map(function(c){ return c.value; });
+  toast('กำลังลบ...','');
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res && res.success){ toast('ลบ '+ids.length+' เทมเพลตแล้ว ✅','success'); loadTemplates(); }
+      else toast('เกิดข้อผิดพลาด: '+(res?res.error:''),'error');
+    })
+    .deleteTemplates(ids);
+}
+
+/* ━━ EDIT TEMPLATE ━━ */
+function editTpl(templateId){
+  toast('กำลังโหลดคำถาม...');
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res || !res.success){ toast('เกิดข้อผิดพลาด: '+(res?res.error:''),'error'); return; }
+      // โหลดคำถามเข้า editor
+      questions = res.questions.map(function(q){ return Object.assign({},q,{id:++qIdSeq}); });
+      document.getElementById('quiz-title').value = res.title || '';
+      _editingTemplateId = templateId;
+      _lastSavedCount    = questions.length;
+      _lastSavedTitle    = res.title || '';
+      renderQuestions();
+
+      // โหลดรูปปกมาแสดงใน editor ถ้ามี
+      resetCoverUI();
+      if (res.coverImageUrl) {
+        const area    = document.getElementById('cover-upload-area');
+        const preview = document.getElementById('cover-preview-img');
+        const overlay = document.getElementById('cover-overlay');
+        const ph      = document.getElementById('cover-placeholder');
+        preview.src                  = res.coverImageUrl;
+        preview.style.display        = 'block';
+        preview.style.objectFit      = 'cover';
+        preview.style.objectPosition = '50% 50%';
+        preview.style.width          = '100%';
+        preview.style.height         = '100%';
+        preview.style.position       = 'absolute';
+        preview.style.inset          = '0';
+        overlay.style.display        = 'flex';
+        ph.style.display             = 'none';
+        area.classList.add('has-image');
+        // ไม่ set _coverBase64 เพราะรูปยังไม่ได้เปลี่ยน
+        _coverBase64 = null;
+        _coverMime   = null;
+      }
+
+      showTab('editor', document.querySelectorAll('.nav-btn')[0]);
+      const btn       = document.getElementById('save-btn');
+      btn.disabled    = false;
+      btn.textContent = '💾 บันทึกการแก้ไข';
+      btn.onclick     = saveEdit;
+      toast('โหลด '+res.questions.length+' คำถามแล้ว — กำลังแก้ไข','success');
+    })
+    .getQuestionsForTemplate(templateId);
+}
+
+function saveEdit(){
+  if (!questions.length){ toast('กรุณาเพิ่มคำถามอย่างน้อย 1 ข้อ','error'); return; }
+  const title = document.getElementById('quiz-title').value.trim();
+  if (!title){ toast('กรุณากรอกชื่อแบบทดสอบ','error'); return; }
+
+  const cleanQuestions = questions.map(function(q){
+    return {
+      type:          q.type || 'mc',
+      questionText:  String(q.questionText || ''),
+      choices:       (q.choices || []).map(function(c){ return String(c||''); }),
+      correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : null
+    };
+  });
+
+ const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.onclick  = null;
+  btn.textContent = '⏳ กำลังบันทึก...';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled = false;
+     if(res && res.success){
+        _lastSavedCount = questions.length;
+        _lastSavedTitle = title;
+        const _editId   = _editingTemplateId;
+        _editingTemplateId = null;
+        btn.textContent    = '💾 บันทึกและสร้างลิงก์';
+        btn.onclick        = saveQuiz;
+
+        // ดึง shareUrl แล้วอัพโหลดรูป (ถ้ามี)
+        google.script.run
+          .withSuccessHandler(function(sumRes) {
+            const url = (sumRes && sumRes.success) ? (sumRes.shareUrl || '') : '';
+         if (_coverBase64 && _coverMime) {
+              btn.textContent = '⏳ กำลังอัพโหลดรูป...';
+              google.script.run
+                .withSuccessHandler(function(imgRes) {
+                  if (imgRes && imgRes.success) _coverFileUrl = imgRes.fileUrl;
+                  showSharePopup(url);
+                })
+                .withFailureHandler(function() {
+                  showSharePopup(url);
+                })
+                .uploadCoverImage(_coverBase64, _coverMime, _editId);
+            } else {
+              showSharePopup(url);
+            }
+          })
+          .getTemplateSummary(_editId);
+      } else {
+        btn.textContent = '💾 บันทึกการแก้ไข';
+        toast('เกิดข้อผิดพลาด: '+(res?res.error:''),'error');
+      }
+    })
+.withFailureHandler(function(err){
+      btn.disabled    = false;
+      btn.textContent = '💾 บันทึกการแก้ไข';
+      btn.onclick     = saveEdit;
+      toast((err && err.message) || 'เกิดข้อผิดพลาด', 'error');
+    })
+    .updateQuestions(JSON.stringify({
+      templateId: _editingTemplateId,
+      title:      title,
+      questions:  cleanQuestions
+    }));
+}
+
+function loadSummaryFor(templateId){
+  if(!templateId){
+    document.getElementById('summary-body').innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">เลือกเทมเพลตด้านบนเพื่อดูผลสรุป</div></div>';
+    return;
+  }
+  document.getElementById('summary-body').innerHTML = '<div class="loading"><span class="spinner"></span>กำลังโหลดข้อมูล...</div>';
+  google.script.run
+    .withSuccessHandler(renderSummary)
+    .getTemplateSummary(templateId);
+}
+
+function renderSummary(res){
+  if(!res || !res.success){
+    document.getElementById('summary-body').innerHTML = '<p style="color:var(--danger)">เกิดข้อผิดพลาด: '+(res?res.error:'')+'</p>';
+    return;
+  }
+  const pre=res.pre, post=res.post;
+  const diff = post.avgPercent - pre.avgPercent;
+  const dCls = diff>0?'up':diff<0?'down':'same';
+  const dSign= diff>0?'+':'';
+  const dIcon= diff>0?'📈':diff<0?'📉':'➡️';
+
+  let html =
+    '<div class="card">'+
+      '<div class="card-title"><span class="dot"></span>'+esc(res.title)+'</div>'+
+      '<div class="row-flex" style="margin-bottom:8px;gap:10px;">'+
+        '<a href="'+esc(res.sheetUrl)+'" target="_blank" class="btn btn-ghost btn-sm">📊 เปิด Google Sheet</a>'+
+        '<button class="btn btn-ghost btn-sm" onclick="copyTplLink(\''+esc(res.shareUrl)+'\')">🔗 คัดลอกลิงก์</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="stat-grid">'+
+      '<div class="stat-card"><div class="stat-lbl">Pre-test ทำแล้ว</div><div class="stat-val pre">'+pre.count+'<span style="font-size:14px"> คน</span></div></div>'+
+      '<div class="stat-card"><div class="stat-lbl">Post-test ทำแล้ว</div><div class="stat-val post">'+post.count+'<span style="font-size:14px"> คน</span></div></div>'+
+      '<div class="stat-card"><div class="stat-lbl">Pre เฉลี่ย</div><div class="stat-val pre">'+pre.avgPercent+'<span style="font-size:14px">%</span></div></div>'+
+      '<div class="stat-card"><div class="stat-lbl">Post เฉลี่ย</div><div class="stat-val post">'+post.avgPercent+'<span style="font-size:14px">%</span></div></div>'+
+      '<div class="stat-card"><div class="stat-lbl">'+dIcon+' ผลต่าง</div><div class="stat-val '+dCls+'">'+dSign+diff+'<span style="font-size:14px">%</span></div></div>'+
+    '</div>'+
+    '<div class="card">'+
+      '<div class="card-title"><span class="dot"></span>เปรียบเทียบ Pre vs Post</div>'+
+      '<div class="bar-wrap">'+
+        '<div class="bar-lbl"><span>🔵 Pre-test</span><span>'+pre.avgPercent+'%</span></div>'+
+        '<div class="bar-track"><div class="bar-fill bar-pre" style="width:'+pre.avgPercent+'%">'+pre.avgPercent+'%</div></div>'+
+        '<div class="bar-lbl" style="margin-top:12px;"><span>🟢 Post-test</span><span>'+post.avgPercent+'%</span></div>'+
+        '<div class="bar-track"><div class="bar-fill bar-post" style="width:'+post.avgPercent+'%">'+post.avgPercent+'%</div></div>'+
+      '</div>'+
+      '<p style="font-size:13px;color:var(--text2);">'+
+        (diff>0?'✅ Post-test สูงกว่า Pre-test <strong>'+diff+'%</strong> — มีพัฒนาการ':diff<0?'⚠️ Post-test ต่ำกว่า Pre-test <strong>'+Math.abs(diff)+'%</strong>':'⬛ Pre และ Post เท่ากัน')+
+      '</p>'+
+    '</div>';
+
+  if(pre.rows.length||post.rows.length){
+    const all = pre.rows.map(function(r){return Object.assign({},r,{type:'pre'});})
+                .concat(post.rows.map(function(r){return Object.assign({},r,{type:'post'});}));
+    html += '<div class="card"><div class="card-title"><span class="dot"></span>รายชื่อผู้ทำแบบทดสอบ</div><div style="overflow-x:auto;"><table class="rtable"><thead><tr><th>#</th><th>ชื่อ</th><th>เบอร์</th><th>ประเภท</th><th>คะแนน</th><th>%</th></tr></thead><tbody>';
+    all.forEach(function(row,i){
+      const c = row.percent>=80?'var(--success)':row.percent>=60?'var(--warning)':'var(--danger)';
+      html += '<tr><td style="color:var(--text3)">'+(i+1)+'</td><td>'+esc(row.name)+'</td><td>'+esc(row.phone)+'</td><td><span class="pill pill-'+row.type+'">'+(row.type==='pre'?'Pre-test':'Post-test')+'</span></td><td>'+row.score+'/'+row.total+'</td><td style="font-weight:800;color:'+c+'">'+row.percent+'%</td></tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
+  document.getElementById('summary-body').innerHTML = html;
+}
+
+/* ━━ UTILS ━━ */
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+var _tt;
+function toast(msg, type){
+  type = type || '';
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show'+(type?' '+type:'');
+  clearTimeout(_tt);
+  _tt = setTimeout(function(){ el.className=''; }, 2800);
+}
+/* ━━ EXPORT PDF ━━ */
+function exportTplPDF(templateId, title) {
+  toast('กำลังโหลดข้อมูล...', '');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success || !res.questions || !res.questions.length) {
+        toast('ไม่พบคำถาม', 'error'); return;
+      }
+      _generatePDF(res.title || title, res.questions);
+    })
+    .withFailureHandler(function(err) {
+      toast('เກີດຂໍ້ຜິດພາດ: ' + (err.message || ''), 'error');
+    })
+    .getQuestionsForTemplate(templateId);
+}
+
+function _generatePDF(title, questions) {
+  function escH(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  var typeColor = {mc:'#1d4ed8', checkbox:'#6d28d9', dropdown:'#c2410c', text:'#475569'};
+  var typeBg    = {mc:'#eff6ff', checkbox:'#f5f3ff', dropdown:'#fff7ed', text:'#f8fafc'};
+
+  var qHTML = '';
+  questions.forEach(function(q, qi) {
+    var tColor = typeColor[q.type] || '#475569';
+    var tBg    = typeBg[q.type]   || '#f8fafc';
+    var choicesHTML = '';
+
+    if (q.type === 'mc' || q.type === 'dropdown') {
+      (q.choices||[]).forEach(function(ch, ci) {
+        choicesHTML +=
+          '<div class="ci">'+
+            '<span class="cc" style="border-color:'+tColor+';color:'+tColor+';">'+String.fromCharCode(65+ci)+'</span>'+
+            '<span class="ct">'+escH(ch)+'</span>'+
+          '</div>';
+      });
+    } else if (q.type === 'checkbox') {
+      (q.choices||[]).forEach(function(ch, ci) {
+        choicesHTML +=
+          '<div class="ci">'+
+            '<span class="cb" style="border-color:'+tColor+';color:'+tColor+';">'+String.fromCharCode(65+ci)+'</span>'+
+            '<span class="ct">'+escH(ch)+'</span>'+
+          '</div>';
+      });
+    } else {
+      choicesHTML = '<div class="al"><div class="ln"></div><div class="ln"></div><div class="ln"></div></div>';
+    }
+
+    qHTML +=
+      '<div class="qb" style="border-left:4px solid '+tColor+';background:'+tBg+';">'+
+        '<div class="qh">'+
+          '<span class="qn" style="background:'+tColor+';">'+(qi+1)+'</span>'+
+          '<span class="qt">'+escH(q.questionText)+'</span>'+
+        '</div>'+
+        '<div class="cw">'+choicesHTML+'</div>'+
+      '</div>';
+  });
+
+  var html =
+    '<!DOCTYPE html><html><head><meta charset="UTF-8">'+
+    '<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">'+
+    '<style>'+
+    '*{box-sizing:border-box;margin:0;padding:0;}'+
+    'body{font-family:"Sarabun",sans-serif;font-size:12pt;color:#0f172a;background:#fff;}'+
+    '.cover{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:28px 36px 20px;}'+
+    '.cvt{font-size:22pt;font-weight:700;margin-bottom:4px;}'+
+    '.cvs{font-size:11pt;color:#bfdbfe;}'+
+    '.ib{margin:16px 28px;border:1.5px solid #2563eb;border-radius:8px;overflow:hidden;}'+
+    '.ir{display:flex;border-bottom:1px solid #bfdbfe;}'+
+    '.ir:last-child{border-bottom:none;}'+
+    '.il{background:#dbeafe;color:#1e40af;font-weight:700;padding:8px 12px;width:160px;flex-shrink:0;font-size:12pt;}'+
+    '.iv{padding:8px 12px;flex:1;font-size:12pt;}'+
+    '.qs{padding:8px 28px 28px;}'+
+    '.qb{border-radius:8px;padding:12px 14px;margin-bottom:12px;}'+
+    '.qh{display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;}'+
+    '.qn{min-width:24px;height:24px;border-radius:5px;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11pt;flex-shrink:0;}'+
+    '.qt{flex:1;font-size:12pt;font-weight:600;line-height:1.5;}'+
+    '.cw{margin-left:32px;}'+
+    '.ci{display:flex;align-items:center;gap:8px;margin-bottom:6px;}'+
+    '.cc{width:20px;height:20px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:9pt;font-weight:700;flex-shrink:0;}'+
+    '.cb{width:20px;height:20px;border-radius:3px;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:9pt;font-weight:700;flex-shrink:0;}'+
+    '.ct{font-size:12pt;}'+
+    '.al{margin-top:4px;}.ln{border-bottom:1px solid #94a3b8;margin-bottom:14px;height:18px;}'+
+    '@media print{'+
+      'body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}'+
+      '.qb{break-inside:avoid;}'+
+      '@page{margin:0.7cm;}'+
+    '}'+
+    '</style></head><body>'+
+    '<div class="cover">'+
+      '<div class="cvt">'+escH(title)+'</div>'+
+      '<div class="cvs">Pre-test / Post-test | '+questions.length+' ຂໍ້</div>'+
+    '</div>'+
+    '<div class="ib">'+
+      '<div class="ir"><div class="il">ຊື່-ນາມສະກຸນ</div><div class="iv"></div></div>'+
+      '<div class="ir"><div class="il">ເບີໂທລະສັບ</div><div class="iv"></div></div>'+
+      '<div class="ir"><div class="il">ປະເພດ</div><div class="iv">&#9744; Pre-test &nbsp;&nbsp;&nbsp;&nbsp; &#9744; Post-test</div></div>'+
+    '</div>'+
+    '<div class="qs">'+qHTML+'</div>'+
+    '<scr'+'ipt>window.onload=function(){window.print();}<'+'/script>'+
+    '</body></html>';
+
+  var win = window.open('', '_blank');
+  if (!win) { toast('ກະລຸນາອະນຸຍາດ Popup ກ່ອນ', 'error'); return; }
+  win.document.write(html);
+  win.document.close();
+  toast('ເປີດໜ້າ Print PDF ແລ້ວ ✅', 'success');
+}
+
+/* ━━ EXPORT WORD ━━ */
+function exportTplWord(templateId, title) {
+  toast('ກຳລັງໂຫລດຂໍ້ມູນ...', '');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success || !res.questions || !res.questions.length) {
+        toast('ບໍ່ພົບຄຳຖາມ', 'error'); return;
+      }
+      _generateWord(res.title || title, res.questions);
+    })
+    .withFailureHandler(function(err) {
+      toast('ເກີດຂໍ້ຜິດພາດ: ' + (err.message || ''), 'error');
+    })
+    .getQuestionsForTemplate(templateId);
+}
+
+function _generateWord(quizTitle, quizQuestions) {
+  function xe(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function rpr(o) {
+    o = o || {};
+    var s = '<w:rPr>';
+    if (o.bold)  s += '<w:b/><w:bCs/>';
+    if (o.size)  s += '<w:sz w:val="'+o.size+'"/><w:szCs w:val="'+o.size+'"/>';
+    if (o.color) s += '<w:color w:val="'+o.color+'"/>';
+    s += '<w:rFonts w:ascii="TH Sarabun New" w:hAnsi="TH Sarabun New" w:cs="TH Sarabun New"/>';
+    s += '</w:rPr>';
+    return s;
+  }
+
+  function wr(text, o) {
+    return '<w:r>'+rpr(o)+'<w:t xml:space="preserve">'+xe(text)+'</w:t></w:r>';
+  }
+
+  function wp(runs, o) {
+    o = o || {};
+    var pp = '<w:pPr>';
+    if (o.align)   pp += '<w:jc w:val="'+o.align+'"/>';
+    if (o.indent)  pp += '<w:ind w:left="'+o.indent+'"/>';
+    if (o.before !== undefined || o.after !== undefined)
+      pp += '<w:spacing w:before="'+(o.before||0)+'" w:after="'+(o.after||0)+'"/>';
+    if (o.fill)    pp += '<w:shd w:val="clear" w:color="auto" w:fill="'+o.fill+'"/>';
+    if (o.divider) pp += '<w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="e2e8f0"/></w:pBdr>';
+    pp += '</w:pPr>';
+    return '<w:p>'+pp+runs+'</w:p>';
+  }
+
+  function wtc(inner, fill, pct) {
+    var tw = pct ? '<w:tcW w:w="'+(pct*50)+'" w:type="pct"/>' : '';
+    return '<w:tc><w:tcPr>'+tw+
+      '<w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/>'+
+      '<w:tcBorders>'+
+        '<w:top w:val="single" w:sz="4" w:color="bfdbfe"/>'+
+        '<w:bottom w:val="single" w:sz="4" w:color="bfdbfe"/>'+
+        '<w:left w:val="single" w:sz="4" w:color="bfdbfe"/>'+
+        '<w:right w:val="single" w:sz="4" w:color="bfdbfe"/>'+
+      '</w:tcBorders>'+
+    '</w:tcPr>'+inner+'</w:tc>';
+  }
+
+  function infoTbl() {
+    function lbl(t){ return wp(wr(t,{bold:true,color:'1e40af',size:24})); }
+    function val(t){ return wp(wr(t,{size:24})); }
+    return '<w:tbl>'+
+      '<w:tblPr><w:tblW w:w="5000" w:type="pct"/>'+
+        '<w:tblBorders>'+
+          '<w:top w:val="single" w:sz="12" w:color="2563eb"/>'+
+          '<w:bottom w:val="single" w:sz="12" w:color="2563eb"/>'+
+          '<w:left w:val="single" w:sz="12" w:color="2563eb"/>'+
+          '<w:right w:val="single" w:sz="12" w:color="2563eb"/>'+
+        '</w:tblBorders>'+
+      '</w:tblPr>'+
+      '<w:tr>'+wtc(lbl('ຊື່-ນາມສະກຸນ'),'dbeafe',28)+wtc(val(''),'ffffff',72)+'</w:tr>'+
+      '<w:tr>'+wtc(lbl('ເບີໂທລະສັບ'),'dbeafe',28)+wtc(val(''),'ffffff',72)+'</w:tr>'+
+      '<w:tr>'+wtc(lbl('ປະເພດ'),'dbeafe',28)+wtc(val('\u2610 Pre-test          \u2610 Post-test'),'ffffff',72)+'</w:tr>'+
+    '</w:tbl>';
+  }
+
+  var body = '';
+  body += wp(wr(quizTitle,{bold:true,size:48,color:'FFFFFF'}),{align:'center',fill:'1e40af',before:0,after:80});
+  body += wp(wr('Pre-test / Post-test  |  '+quizQuestions.length+' ຂໍ້',{size:18,color:'bfdbfe'}),{align:'center',fill:'1e40af',before:0,after:200});
+  body += infoTbl();
+  body += wp(wr('',{size:24}),{before:200,after:0});
+
+  quizQuestions.forEach(function(q, qi) {
+    var tc2 = {mc:'1d4ed8',checkbox:'6d28d9',dropdown:'c2410c',text:'475569'}[q.type]||'475569';
+
+    // คำถาม — ไม่มี label type แล้ว
+    body += wp(
+      wr((qi+1)+'.  ',{bold:true,size:24,color:'0f172a'})+
+      wr((q.questionText||''),{bold:true,size:24,color:'0f172a'}),
+      {before:200,after:80}
+    );
+
+    if (q.type==='mc'||q.type==='dropdown') {
+      (q.choices||[]).forEach(function(ch,ci){
+        body += wp(
+          wr('\u25cb  '+String.fromCharCode(65+ci)+'.  '+ch,{size:24,color:'334155'}),
+          {indent:400,before:30,after:30}
+        );
+      });
+    } else if (q.type==='checkbox') {
+      (q.choices||[]).forEach(function(ch,ci){
+        body += wp(
+          wr('\u2610  '+String.fromCharCode(65+ci)+'.  '+ch,{size:24,color:'334155'}),
+          {indent:400,before:30,after:30}
+        );
+      });
+    } else {
+      for (var li=0;li<4;li++) {
+        body += wp(wr('_'.repeat(70),{size:24,color:'94a3b8'}),{indent:400,before:30,after:30});
+      }
+    }
+
+    if (qi < quizQuestions.length-1) {
+      body += wp(wr('',{size:24}),{divider:true,before:100,after:100});
+    }
+  });
+
+  var xh = '<'+'?xml version="1.0" encoding="UTF-8" standalone="yes"?'+'>';
+
+  var docXml = xh+
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'+
+    '<w:body>'+body+
+    '<w:sectPr><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080"/></w:sectPr>'+
+    '</w:body></w:document>';
+
+  var relsXml = xh+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'+
+    '</Relationships>';
+
+  var wRelsXml = xh+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+
+  var ctXml = xh+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'+
+    '</Types>';
+
+  var zip = _buildZip([
+    {name:'[Content_Types].xml',          data:ctXml},
+    {name:'_rels/.rels',                  data:relsXml},
+    {name:'word/document.xml',            data:docXml},
+    {name:'word/_rels/document.xml.rels', data:wRelsXml}
+  ]);
+
+  var safe = quizTitle.replace(/[^\w\s\u0E00-\u0E7F\u0E80-\u0EFF_-]/g,'').trim()||'quiz';
+  _dlBlob(zip, safe+'_form.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  toast('ດາວໂຫລດ Word ແລ້ວ ✅','success');
+}
+
+function _buildZip(files) {
+  function sb(str) {
+    var b=[];
+    for (var i=0;i<str.length;i++) {
+      var c=str.charCodeAt(i);
+      if (c<128) b.push(c);
+      else if (c<2048) b.push((c>>6)|192,(c&63)|128);
+      else b.push((c>>12)|224,((c>>6)&63)|128,(c&63)|128);
+    }
+    return b;
+  }
+  function crc(bytes) {
+    var t=[];
+    for (var i=0;i<256;i++){var c=i;for(var j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[i]=c;}
+    var r=0xFFFFFFFF;
+    for (var k=0;k<bytes.length;k++) r=t[(r^bytes[k])&0xFF]^(r>>>8);
+    return (r^0xFFFFFFFF)>>>0;
+  }
+  function u16(n){return [n&0xFF,(n>>8)&0xFF];}
+  function u32(n){return [n&0xFF,(n>>8)&0xFF,(n>>16)&0xFF,(n>>24)&0xFF];}
+
+  var lh=[],cd=[],off=0;
+  files.forEach(function(f){
+    var nb=sb(f.name),db=sb(f.data),cr=crc(db),sz=db.length;
+    var loc=[0x50,0x4B,0x03,0x04].concat(u16(20),u16(0),u16(0),u16(0),u16(0),u32(cr),u32(sz),u32(sz),u16(nb.length),u16(0)).concat(nb).concat(db);
+    lh.push(loc);
+    cd.push([0x50,0x4B,0x01,0x02].concat(u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(cr),u32(sz),u32(sz),u16(nb.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off)).concat(nb));
+    off+=loc.length;
+  });
+  var cdb=[].concat.apply([],cd),cds=cdb.length;
+  var eocd=[0x50,0x4B,0x05,0x06].concat(u16(0),u16(0),u16(files.length),u16(files.length),u32(cds),u32(off),u16(0));
+  var all=[].concat.apply([],[].concat.apply([],lh)).concat(cdb).concat(eocd);
+  return new Uint8Array(all);
+}
+
+function _dlBlob(uint8arr, filename, mime) {
+  var blob=new Blob([uint8arr],{type:mime});
+  var url=URL.createObjectURL(blob);
+  var a=window.document.createElement('a');
+  a.href=url; a.download=filename;
+  window.document.body.appendChild(a);
+  a.click();
+  window.document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+
+<? } else { ?>
+
+<!-- ══════════ STUDENT ══════════ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-logo">📋</div>
+    <h1><?= quizTitle ?></h1>
+  </div>
+</div>
+
+<div class="main">
+
+  <div id="step-type" class="step active">
+    <div class="card" style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:26px;font-weight:800;margin-bottom:8px;">ยินดีต้อนรับ 👋</div>
+      <div style="color:var(--text2);font-size:14px;">กรุณาเลือกประเภทแบบทดสอบที่ต้องการทำ</div>
+    </div>
+    <div class="type-grid">
+      <div class="type-card" id="card-pre" onclick="selType('pre')">
+        <div class="type-icon">📝</div>
+        <div class="type-lbl">Pre-test</div>
+        <div class="type-desc">ทำก่อนเรียน<br>วัดความรู้เดิม</div>
+        <div><span class="pill-big pill-big-pre">ก่อนเรียน</span></div>
+      </div>
+      <div class="type-card" id="card-post" onclick="selType('post')">
+        <div class="type-icon">✅</div>
+        <div class="type-lbl">Post-test</div>
+        <div class="type-desc">ทำหลังเรียน<br>วัดความรู้ที่ได้รับ</div>
+        <div><span class="pill-big pill-big-post">หลังเรียน</span></div>
+      </div>
+    </div>
+    <div style="text-align:center;">
+      <button class="btn btn-primary" id="btn-next" onclick="goInfo()" disabled style="padding:12px 36px;font-size:16px;">ถัดไป →</button>
+    </div>
+  </div>
+
+  <div id="step-info" class="step">
+    <div class="card">
+      <div class="card-title" id="info-title"><span class="dot"></span>กรอกข้อมูล</div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div><label>ชื่อ-นามสกุล *</label><input type="text" id="s-name" placeholder="เช่น สมชาย ใจดี"></div>
+        <div><label>เบอร์โทรศัพท์ *</label><input type="text" id="s-phone" placeholder="เช่น 0812345678"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button class="btn btn-ghost" onclick="goStep('step-type')">← กลับ</button>
+      <button class="btn btn-primary" id="btn-start" onclick="startQuiz()" style="padding:11px 28px;">เริ่มทำแบบทดสอบ →</button>
+    </div>
+  </div>
+
+  <div id="step-quiz" class="step">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div id="q-header" style="font-size:16px;font-weight:700;"></div>
+        <div id="q-prog" style="font-size:13px;color:var(--text3);"></div>
+      </div>
+    </div>
+    <div id="quiz-body"></div>
+    <div style="text-align:center;margin-top:10px;">
+      <button class="btn btn-success" id="btn-submit" onclick="doSubmit()" style="padding:13px 36px;font-size:16px;">📤 ส่งคำตอบ</button>
+    </div>
+  </div>
+
+  <div id="step-result" class="step">
+    <div class="card result-box">
+      <div id="r-icon" class="r-icon"></div>
+      <div id="r-pct"  class="r-pct"></div>
+      <div id="r-score" class="r-score"></div>
+      <div id="r-msg"   class="r-msg"></div>
+      <button class="btn btn-ghost" onclick="location.reload()" style="margin:0 auto;">🔄 ทำใหม่อีกครั้ง</button>
+    </div>
+  </div>
+
+</div>
+<div id="toast"></div>
+
+<script>
+const _templateId = '<?= templateId ?>';
+var _type      = '';
+var _questions = [];
+var _answers   = {};
+
+function selType(t){
+  _type = t;
+  document.getElementById('card-pre').className  = 'type-card'+(t==='pre'?' sel-pre':'');
+  document.getElementById('card-post').className = 'type-card'+(t==='post'?' sel-post':'');
+  document.getElementById('btn-next').disabled   = false;
+}
+function goInfo(){
+  if(!_type) return;
+  goStep('step-info');
+  document.getElementById('info-title').innerHTML = '<span class="dot"></span>กรอกข้อมูลก่อนเริ่มทำ '+(_type==='pre'?'Pre-test 📝':'Post-test ✅');
+}
+
+function startQuiz(){
+  const name  = document.getElementById('s-name').value.trim();
+  const phone = document.getElementById('s-phone').value.trim();
+  if(!name)  { toast('กรุณากรอกชื่อ-นามสกุล','error'); return; }
+  if(!phone) { toast('กรุณากรอกเบอร์โทรศัพท์','error'); return; }
+  const btn = document.getElementById('btn-start');
+  btn.disabled = true; btn.textContent = '⏳ กำลังโหลด...';
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled = false; btn.textContent = 'เริ่มทำแบบทดสอบ →';
+      if(!res || !res.success || !res.questions.length){ toast((res&&res.error)||'ไม่มีแบบทดสอบ','error'); return; }
+      _questions = res.questions; _answers = {};
+      renderQuiz(name);
+      goStep('step-quiz');
+    })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='เริ่มทำแบบทดสอบ →'; toast(err.message,'error'); })
+    .getQuestionsForTemplate(_templateId);
+}
+
+function renderQuiz(name){
+  const tColor = _type==='pre'?'var(--primary)':'var(--success)';
+  document.getElementById('q-header').innerHTML = '<span style="color:'+tColor+';font-weight:800;">'+(_type==='pre'?'Pre-test':'Post-test')+'</span> — '+esc(name);
+  document.getElementById('q-prog').textContent = '0/'+_questions.length+' ข้อ';
+  const body = document.getElementById('quiz-body');
+  body.innerHTML = '';
+  _questions.forEach(function(q, i){
+    const div = document.createElement('div');
+    div.className = 'sq-card sq-'+q.type;
+    const typeBadge = {mc:'MC',checkbox:'หลายคำตอบ',dropdown:'ดรอปดาวน์',text:'ข้อเขียน'}[q.type]||q.type;
+    let inner =
+      '<div class="sq-head">'+
+        '<div class="sq-num">'+(i+1)+'</div>'+
+        '<div class="sq-text">'+esc(q.questionText)+'<span class="sq-type-badge">'+typeBadge+'</span></div>'+
+      '</div>';
+
+    if(q.type==='mc'){
+      inner += q.choices.map(function(ch,ci){
+        return '<label class="opt-row" id="opt-'+q.id+'-'+ci+'" onclick="pickMC('+q.id+','+ci+')">'+
+          '<input type="radio" name="q-'+q.id+'" value="'+ci+'">'+
+          '<span class="opt-letter">'+String.fromCharCode(65+ci)+'.</span>'+
+          '<span>'+esc(ch)+'</span></label>';
+      }).join('');
+    } else if(q.type==='checkbox'){
+      inner += q.choices.map(function(ch,ci){
+        return '<label class="chk-row" id="chk-'+q.id+'-'+ci+'" onclick="pickChk('+q.id+','+ci+')">'+
+          '<input type="checkbox" value="'+ci+'">'+
+          '<span class="opt-letter">'+String.fromCharCode(65+ci)+'.</span>'+
+          '<span>'+esc(ch)+'</span></label>';
+      }).join('');
+    } else if(q.type==='dropdown'){
+      inner += '<select class="s-select" id="drop-'+q.id+'" onchange="pickDrop('+q.id+',this.value)">'+
+        '<option value="">— เลือกคำตอบ —</option>'+
+        q.choices.map(function(ch,ci){
+          return '<option value="'+ci+'">'+String.fromCharCode(65+ci)+'. '+esc(ch)+'</option>';
+        }).join('')+'</select>';
+    } else if(q.type==='text'){
+      inner += '<textarea class="s-textarea" id="txt-'+q.id+'" placeholder="พิมพ์คำตอบของคุณที่นี่..." oninput="pickTxt('+q.id+',this.value)" rows="4"></textarea>';
+    }
+    div.innerHTML = inner;
+    body.appendChild(div);
+  });
+}
+
+function pickMC(qid,ci){
+  _answers[qid]=ci;
+  const q=_questions.find(function(q){return q.id===qid;});
+  if(q) q.choices.forEach(function(_,i){
+    const el=document.getElementById('opt-'+qid+'-'+i);
+    if(el) el.classList.toggle('sel', i===ci);
+  });
+  updateProg();
+}
+function pickChk(qid,ci){
+  if(!_answers[qid]) _answers[qid]=[];
+  const arr=_answers[qid];
+  const idx=arr.indexOf(ci);
+  if(idx>-1) arr.splice(idx,1); else arr.push(ci);
+  const el=document.getElementById('chk-'+qid+'-'+ci);
+  if(el) el.classList.toggle('sel', arr.includes(ci));
+  updateProg();
+}
+function pickDrop(qid,val){ _answers[qid]=val===''?undefined:parseInt(val); updateProg(); }
+function pickTxt(qid,val){  _answers[qid]=val; updateProg(); }
+function updateProg(){
+  const done=Object.keys(_answers).filter(function(k){
+    const v=_answers[k]; return v!==undefined&&v!==null&&v!==''&&!(Array.isArray(v)&&!v.length);
+  }).length;
+  document.getElementById('q-prog').textContent=done+'/'+_questions.length+' ข้อ';
+}
+
+function doSubmit(){
+  const name  = document.getElementById('s-name').value.trim();
+  const phone = document.getElementById('s-phone').value.trim();
+  const done  = Object.keys(_answers).filter(function(k){
+    const v=_answers[k]; return v!==undefined&&v!==null&&v!==''&&!(Array.isArray(v)&&!v.length);
+  }).length;
+  if(done<_questions.length)
+    if(!confirm('ตอบแล้ว '+done+'/'+_questions.length+' ข้อ\nต้องการส่งเลยไหม?')) return;
+
+  const ansArr = _questions.map(function(q){ return _answers[q.id]!==undefined?_answers[q.id]:null; });
+  const btn = document.getElementById('btn-submit');
+  btn.disabled=true; btn.textContent='⏳ กำลังส่ง...';
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false; btn.textContent='📤 ส่งคำตอบ';
+      if(res && res.success) showResult(res.score, res.total, res.percent);
+      else toast((res&&res.error)||'เกิดข้อผิดพลาด','error');
+    })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='📤 ส่งคำตอบ'; toast(err.message,'error'); })
+    .submitResponse(JSON.stringify({name:name, phone:phone, testType:_type, answers:ansArr, templateId:_templateId}));
+}
+
+function showResult(score,total,percent){
+  goStep('step-result');
+  const icon  = percent>=80?'🎉':percent>=60?'👍':'📚';
+  const color = percent>=80?'var(--success)':percent>=60?'var(--warning)':'var(--danger)';
+  const typeTH= _type==='pre'?'Pre-test':'Post-test';
+  const msg   = percent>=80?'ยอดเยี่ยม! คะแนนผ่านเกณฑ์ 80% 🏆':percent>=60?'ทำได้ดี! ยังมีส่วนที่พัฒนาได้ต่อไป':'ไม่ต้องท้อ ลองทบทวนบทเรียนแล้วกลับมาใหม่นะ 💪';
+  document.getElementById('r-icon').textContent  = icon;
+  document.getElementById('r-pct').innerHTML     = '<span style="color:'+color+'">'+percent+'%</span>';
+  document.getElementById('r-score').textContent = score+' / '+total+' คะแนน ('+typeTH+')';
+  document.getElementById('r-msg').textContent   = msg;
+}
+
+function goStep(id){
+  document.querySelectorAll('.step').forEach(function(s){ s.classList.remove('active'); });
+  document.getElementById(id).classList.add('active');
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+var _tt;
+function toast(msg,type){
+  type=type||'';
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className='show'+(type?' '+type:'');
+  clearTimeout(_tt); _tt=setTimeout(function(){ el.className=''; },3000);
+}
+
+</script>
+
+<? } ?>
+</body>
+</html>
