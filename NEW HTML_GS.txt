@@ -1,0 +1,2992 @@
+// =============================================
+//  PRE/POST TEST SYSTEM — Code.gs  v5.0
+//  รักษาระบบเดิมทั้งหมด + เพิ่มฟีเจอร์ใหม่:
+//  1. Login/Register + อนุมัติ
+//  2. สิทธิ์ Admin/User + เห็นแค่ของตัวเอง
+//  3. Export คะแนน Excel จริง
+//  4. Summary รายข้อ (ครบแล้วในเดิม)
+//  5. ข้อมูล createdBy ครบ
+// =============================================
+
+const DRIVE_FOLDER_ID = '1tuOflctVSw8n6aUgLnEme0frjN5gTs0D';
+const MASTER_SS_ID    = '1iA-srMh_h_LrovHrt9ZJhZMj-KeoqwQgHKIAUdcSSZ8';
+const LOGIN_SS_ID     = '1iA-srMh_h_LrovHrt9ZJhZMj-KeoqwQgHKIAUdcSSZ8';
+
+const MASTER_SHEET_NAMES = {
+  CONFIG:    'Config',
+  TEMPLATES: 'Templates'
+};
+
+// ── doGet ──────────────────────────────────────────────────────
+function doGet(e) {
+  const params     = (e && e.parameter) ? e.parameter : {};
+  const templateId = params.templateId || '';
+  const token      = params.token      || '';
+  const page       = templateId ? 'student' : 'main';
+
+  const tmpl = HtmlService.createTemplateFromFile('index');
+  tmpl.page        = page;
+  tmpl.token       = token;
+  tmpl.templateId  = templateId;
+  tmpl.deployUrl   = ScriptApp.getService().getUrl();
+  tmpl.quizTitle   = templateId ? getTemplateTitleById(templateId) : 'ระบบสร้างแบบทดสอบ';
+
+  const output = tmpl.evaluate()
+    .setTitle(tmpl.quizTitle)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+
+  return output;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  LOGIN / REGISTER / AUTH
+// ══════════════════════════════════════════════════════════════
+
+function getLoginSheet() {
+  const ss = SpreadsheetApp.openById(LOGIN_SS_ID);
+  let sh = ss.getSheetByName('login');
+  if (!sh) {
+    sh = ss.insertSheet('login');
+    sh.appendRow(['username', 'password', 'fullname', 'status', 'approved']);
+  }
+  return sh;
+}
+
+function loginUser(username, password) {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (String(row[0]).trim().toLowerCase() === String(username).trim().toLowerCase() &&
+          String(row[1]).trim() === String(password).trim()) {
+        const approved = String(row[4]).trim().toLowerCase();
+        if (approved !== 'yes' && approved !== 'อนุมัติ' && approved !== '1' && approved !== 'true') {
+          return { success: false, error: 'รอการอนุมัติจากแอดมิน กรุณารอสักครู่' };
+        }
+        return {
+          success: true,
+          user: {
+            username: String(row[0]).trim(),
+            fullname: String(row[2]).trim(),
+            status:   String(row[3]).trim().toLowerCase(),
+            approved: true
+          }
+        };
+      }
+    }
+    return { success: false, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
+  } catch(e) {
+    Logger.log('loginUser error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function registerUser(username, password, fullname) {
+  try {
+    username = String(username).trim();
+    password = String(password).trim();
+    fullname = String(fullname).trim();
+
+    if (!username || !password || !fullname) {
+      return { success: false, error: 'กรุณากรอกข้อมูลให้ครบ' };
+    }
+
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim().toLowerCase() === username.toLowerCase()) {
+        return { success: false, error: 'ชื่อผู้ใช้นี้มีในระบบแล้ว' };
+      }
+    }
+
+    sh.appendRow([username, password, fullname, 'user', 'no']);
+    return { success: true, message: 'ลงทะเบียนสำเร็จ! รอการอนุมัติจากแอดมิน' };
+  } catch(e) {
+    Logger.log('registerUser error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Get pending users (Admin only) ───────────────────────────
+function getPendingUsers() {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    const pending = [];
+    for (let i = 1; i < data.length; i++) {
+      const approved = String(data[i][4]).trim().toLowerCase();
+      if (approved !== 'yes' && approved !== 'อนุมัติ' && approved !== '1' && approved !== 'true') {
+        pending.push({
+          row:      i + 1,
+          username: String(data[i][0]).trim(),
+          fullname: String(data[i][2]).trim(),
+          status:   String(data[i][3]).trim()
+        });
+      }
+    }
+    return { success: true, pending: pending };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Approve user (Admin only) ─────────────────────────────────
+function approveUser(username) {
+  try {
+    const sh   = getLoginSheet();
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim().toLowerCase() === String(username).trim().toLowerCase()) {
+        sh.getRange(i + 1, 5).setValue('yes');
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบผู้ใช้' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MASTER SPREADSHEET
+// ══════════════════════════════════════════════════════════════
+
+function getMasterSS() {
+  return SpreadsheetApp.openById(MASTER_SS_ID);
+}
+
+function getMasterSheet(name) {
+  const ss = getMasterSS();
+  if (!ss) throw new Error('ไม่พบ Master Spreadsheet');
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    if (name === MASTER_SHEET_NAMES.CONFIG) {
+      sh.appendRow(['key', 'value']);
+    } else if (name === MASTER_SHEET_NAMES.TEMPLATES) {
+      sh.appendRow(['templateId','title','sheetId','sheetUrl','shareToken','shareUrl','createdAt','questionCount','coverImageId','coverImageUrl','createdBy']);
+    }
+  }
+  return sh;
+}
+
+function getConfig(key) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) return data[i][1];
+  }
+  return null;
+}
+
+function setConfig(key, value) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.CONFIG);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) { sh.getRange(i+1, 2).setValue(value); return; }
+  }
+  sh.appendRow([key, value]);
+}
+
+// ── Template registry ─────────────────────────────────────────
+function registerTemplate(templateId, title, sheetId, sheetUrl, shareToken, shareUrl, questionCount, createdBy) {
+  const sh = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  sh.appendRow([templateId, title, sheetId, sheetUrl, shareToken, shareUrl, new Date().toISOString(), questionCount, '', '', createdBy || '']);
+}
+
+function getTemplateRow(templateId) {
+  const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === templateId) return { row: i+1, data: data[i] };
+  }
+  return null;
+}
+
+function getTemplateTitleById(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    return found ? found.data[1] : 'แบบทดสอบ';
+  } catch(e) {
+    return 'แบบทดสอบ';
+  }
+}
+
+// ── Get all templates (กรอง by createdBy สำหรับ non-admin) ────
+function getTemplates(username, isAdmin) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    const templates = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      const createdBy = String(data[i][10] || '').trim();
+      if (!isAdmin && username && createdBy.toLowerCase() !== String(username).toLowerCase()) continue;
+      templates.push({
+        templateId:    data[i][0],
+        title:         data[i][1],
+        sheetId:       data[i][2],
+        sheetUrl:      data[i][3],
+        shareToken:    data[i][4],
+        shareUrl:      data[i][5],
+        createdAt:     data[i][6],
+        questionCount: data[i][7],
+        coverImageId:  data[i][8] || '',
+        coverImageUrl: data[i][9] || '',
+        createdBy:     createdBy
+      });
+    }
+    return { success: true, templates: templates.reverse() };
+  } catch(e) {
+    Logger.log('getTemplates error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Save questions ─────────────────────────────────────────────
+function saveQuestions(payload) {
+  try {
+    const parsed    = JSON.parse(payload);
+    const questions = parsed.questions;
+    const quizTitle = (parsed.title || 'แบบทดสอบ').trim();
+    const createdBy = parsed.createdBy || '';
+
+    const fileName = quizTitle + ' — ' + Utilities.formatDate(
+      new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm'
+    );
+    const newSS = SpreadsheetApp.create(fileName);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1000);
+
+    try {
+      const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+      const newFile = DriveApp.getFileById(newSS.getId());
+      folder.addFile(newFile);
+      DriveApp.getRootFolder().removeFile(newFile);
+    } catch(folderErr) {
+      Logger.log('folder move error: ' + folderErr.message);
+    }
+
+    const ss     = SpreadsheetApp.openById(newSS.getId());
+    const sheets = ss.getSheets();
+
+    const qSheet = sheets[0];
+    qSheet.setName('Questions');
+    qSheet.clearContents();
+    qSheet.appendRow(['id','type','questionText','choices','correctAnswer','createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i+1, q.type||'mc', q.questionText||'',
+        JSON.stringify(q.choices||[]),
+        JSON.stringify(q.correctAnswer!==undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+    SpreadsheetApp.flush();
+
+    let respSheet = ss.getSheetByName('Responses');
+    if (!respSheet) respSheet = ss.insertSheet('Responses');
+    respSheet.clearContents();
+    respSheet.appendRow(['timestamp','name','phone','testType','answers','score','total','percent']);
+    SpreadsheetApp.flush();
+
+    let infoSheet = ss.getSheetByName('Info');
+    if (!infoSheet) infoSheet = ss.insertSheet('Info');
+    infoSheet.clearContents();
+
+    const templateId = Utilities.getUuid();
+    const shareToken = Utilities.getUuid();
+    const deployUrl  = ScriptApp.getService().getUrl();
+    const shareUrl   = deployUrl + '?page=student&templateId=' + templateId + '&token=' + shareToken;
+
+    infoSheet.appendRow(['key','value']);
+    infoSheet.appendRow(['title',        quizTitle]);
+    infoSheet.appendRow(['templateName', quizTitle]);
+    infoSheet.appendRow(['templateId',   templateId]);
+    infoSheet.appendRow(['shareToken',   shareToken]);
+    infoSheet.appendRow(['shareUrl',     shareUrl]);
+    infoSheet.appendRow(['createdAt',    new Date().toISOString()]);
+    infoSheet.appendRow(['createdBy',    createdBy]);
+    SpreadsheetApp.flush();
+
+    registerTemplate(templateId, quizTitle, ss.getId(), ss.getUrl(), shareToken, shareUrl, questions.length, createdBy);
+
+    return { success: true, shareUrl: shareUrl, sheetUrl: ss.getUrl(), templateId: templateId };
+  } catch(e) {
+    Logger.log('saveQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Get questions for student ──────────────────────────────────
+function getQuestionsForTemplate(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบนี้' };
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+    const data    = qSheet.getDataRange().getValues();
+    const questions = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      questions.push({
+        id:            data[i][0],
+        type:          data[i][1],
+        questionText:  data[i][2],
+        choices:       JSON.parse(data[i][3] || '[]'),
+        correctAnswer: JSON.parse(data[i][4] !== '' ? data[i][4] : 'null')
+      });
+    }
+    const title         = found.data[1];
+    const coverImageUrl = found.data[9] || '';
+    return { success: true, questions: questions, title: title, coverImageUrl: coverImageUrl };
+  } catch(e) {
+    Logger.log('getQuestionsForTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Submit response ───────────────────────────────────────────
+function submitResponse(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const name       = parsed.name;
+    const phone      = parsed.phone;
+    const testType   = parsed.testType;
+    const answers    = parsed.answers;
+    const templateId = parsed.templateId;
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบแบบทดสอบ' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const qSheet    = ss.getSheetByName('Questions');
+
+    const respData = respSheet.getDataRange().getValues();
+    let preCount = 0, postCount = 0;
+    for (let i = 1; i < respData.length; i++) {
+      if (String(respData[i][2]) === String(phone)) {
+        if (respData[i][3] === 'pre')  preCount++;
+        if (respData[i][3] === 'post') postCount++;
+      }
+    }
+    if (testType === 'pre'  && preCount  >= 1) return { success: false, error: 'คุณได้ทำ Pre-test แล้ว' };
+    if (testType === 'post' && postCount >= 1) return { success: false, error: 'คุณได้ทำ Post-test แล้ว' };
+    if (testType === 'post' && preCount  === 0) return { success: false, error: 'กรุณาทำ Pre-test ก่อน' };
+
+    const qData = qSheet.getDataRange().getValues();
+    let score = 0, gradable = 0;
+    for (let i = 1; i < qData.length; i++) {
+      const type    = qData[i][1];
+      const correct = JSON.parse(qData[i][4] !== '' ? qData[i][4] : 'null');
+      const given   = answers[i-1];
+      if (type === 'text') continue;
+      gradable++;
+      if (type === 'mc' || type === 'dropdown') {
+        if (String(given) === String(correct)) score++;
+      } else if (type === 'checkbox') {
+        const correctArr = Array.isArray(correct) ? correct.map(String).sort() : [];
+        const givenArr   = Array.isArray(given)   ? given.map(String).sort()   : [];
+        if (JSON.stringify(correctArr) === JSON.stringify(givenArr)) score++;
+      }
+    }
+    const total   = gradable;
+    const percent = total > 0 ? Math.round((score/total)*100) : 0;
+
+    respSheet.appendRow([
+      new Date().toISOString(), name, phone, testType,
+      JSON.stringify(answers), score, total, percent
+    ]);
+
+    return { success: true, score: score, total: total, percent: percent };
+  } catch(e) {
+    Logger.log('submitResponse error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Summary ───────────────────────────────────────────────────
+function getTemplateSummary(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const qSheet    = ss.getSheetByName('Questions');
+    const respData  = respSheet.getDataRange().getValues();
+    const qData     = qSheet.getDataRange().getValues();
+
+    const questionMeta = [];
+    for (let i = 1; i < qData.length; i++) {
+      if (!qData[i][0]) continue;
+      questionMeta.push({
+        id:            qData[i][0],
+        type:          qData[i][1],
+        questionText:  qData[i][2],
+        choices:       JSON.parse(qData[i][3] || '[]'),
+        correctAnswer: JSON.parse(qData[i][4] !== '' ? qData[i][4] : 'null')
+      });
+    }
+
+    const pre = [], post = [];
+    for (let i = 1; i < respData.length; i++) {
+      if (!respData[i][0]) continue;
+      const answers = JSON.parse(respData[i][4] || '[]');
+      const row = {
+        name:    respData[i][1],
+        phone:   String(respData[i][2]),
+        score:   parseInt(respData[i][5])   || 0,
+        total:   parseInt(respData[i][6])   || 0,
+        percent: parseFloat(respData[i][7]) || 0,
+        answers: answers
+      };
+      if (respData[i][3] === 'pre')       pre.push(row);
+      else if (respData[i][3] === 'post') post.push(row);
+    }
+
+    const avg = function(arr) {
+      return arr.length ? Math.round(arr.reduce(function(s,r){ return s+r.percent; }, 0) / arr.length) : 0;
+    };
+
+    const questionStats = questionMeta.map(function(q, qi) {
+      let preWrong = 0, postWrong = 0, preTotal = 0, postTotal = 0;
+
+      pre.forEach(function(r) {
+        if (q.type === 'text') return;
+        preTotal++;
+        const given   = r.answers[qi];
+        const correct = q.correctAnswer;
+        let wrong = false;
+        if (q.type === 'mc' || q.type === 'dropdown') {
+          wrong = String(given) !== String(correct);
+        } else if (q.type === 'checkbox') {
+          const ca = Array.isArray(correct) ? correct.map(String).sort() : [];
+          const ga = Array.isArray(given)   ? given.map(String).sort()   : [];
+          wrong = JSON.stringify(ca) !== JSON.stringify(ga);
+        }
+        if (wrong) preWrong++;
+      });
+
+      post.forEach(function(r) {
+        if (q.type === 'text') return;
+        postTotal++;
+        const given   = r.answers[qi];
+        const correct = q.correctAnswer;
+        let wrong = false;
+        if (q.type === 'mc' || q.type === 'dropdown') {
+          wrong = String(given) !== String(correct);
+        } else if (q.type === 'checkbox') {
+          const ca = Array.isArray(correct) ? correct.map(String).sort() : [];
+          const ga = Array.isArray(given)   ? given.map(String).sort()   : [];
+          wrong = JSON.stringify(ca) !== JSON.stringify(ga);
+        }
+        if (wrong) postWrong++;
+      });
+
+      return {
+        index:        qi + 1,
+        questionText: q.questionText,
+        type:         q.type,
+        preWrong:     preWrong,
+        postWrong:    postWrong,
+        preTotal:     preTotal,
+        postTotal:    postTotal,
+        preWrongPct:  preTotal  > 0 ? Math.round((preWrong/preTotal)*100)   : 0,
+        postWrongPct: postTotal > 0 ? Math.round((postWrong/postTotal)*100) : 0
+      };
+    });
+
+    return {
+      success:  true,
+      title:    found.data[1],
+      sheetUrl: found.data[3],
+      shareUrl: found.data[5],
+      pre:  { count: pre.length,  avgPercent: avg(pre),  rows: pre  },
+      post: { count: post.length, avgPercent: avg(post), rows: post },
+      questionStats: questionStats
+    };
+  } catch(e) {
+    Logger.log('getTemplateSummary error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Delete template ───────────────────────────────────────────
+function deleteTemplate(templateId, username, isAdmin) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const createdBy = String(data[i][10] || '').trim().toLowerCase();
+        if (!isAdmin && username && createdBy !== String(username).toLowerCase()) {
+          return { success: false, error: 'คุณไม่มีสิทธิ์ลบเทมเพลตนี้' };
+        }
+        const sheetId = data[i][2];
+        try { DriveApp.getFileById(sheetId).setTrashed(true); } catch(driveErr) { }
+        sh.deleteRow(i+1);
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    Logger.log('deleteTemplate error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function deleteTemplates(templateIds, username, isAdmin) {
+  try {
+    const results = [];
+    for (let i = 0; i < templateIds.length; i++) {
+      const res = deleteTemplate(templateIds[i], username, isAdmin);
+      results.push({ id: templateIds[i], success: res.success, error: res.error });
+    }
+    return { success: true, results: results };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Update questions ──────────────────────────────────────────
+function updateQuestions(payload) {
+  try {
+    const parsed     = JSON.parse(payload);
+    const templateId = parsed.templateId;
+    const questions  = parsed.questions;
+    const quizTitle  = (parsed.title || 'แบบทดสอบ').trim();
+    const username   = parsed.username || '';
+    const isAdmin    = parsed.isAdmin  || false;
+
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const createdBy = String(found.data[10] || '').trim().toLowerCase();
+    if (!isAdmin && username && createdBy !== String(username).toLowerCase()) {
+      return { success: false, error: 'คุณไม่มีสิทธิ์แก้ไขเทมเพลตนี้' };
+    }
+
+    const sheetId = found.data[2];
+    const ss      = SpreadsheetApp.openById(sheetId);
+    const qSheet  = ss.getSheetByName('Questions');
+
+    qSheet.clearContents();
+    qSheet.appendRow(['id','type','questionText','choices','correctAnswer','createdAt']);
+    questions.forEach(function(q, i) {
+      qSheet.appendRow([
+        i+1, q.type||'mc', q.questionText||'',
+        JSON.stringify(q.choices||[]),
+        JSON.stringify(q.correctAnswer!==undefined ? q.correctAnswer : null),
+        new Date().toISOString()
+      ]);
+    });
+
+    const infoSheet = ss.getSheetByName('Info');
+    if (infoSheet) {
+      const infoData = infoSheet.getDataRange().getValues();
+      for (let i = 1; i < infoData.length; i++) {
+        if (infoData[i][0] === 'title') infoSheet.getRange(i+1,2).setValue(quizTitle);
+      }
+    }
+
+    const sh         = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const masterData = sh.getDataRange().getValues();
+    for (let i = 1; i < masterData.length; i++) {
+      if (masterData[i][0] === templateId) {
+        sh.getRange(i+1, 2).setValue(quizTitle);
+        sh.getRange(i+1, 8).setValue(questions.length);
+        break;
+      }
+    }
+
+SpreadsheetApp.flush();
+
+    // ดึง shareUrl กลับมาด้วย
+    const shareUrl = found.data[5];
+    return { success: true, shareUrl: shareUrl };
+  } catch(e) {
+    Logger.log('updateQuestions error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Upload cover image ─────────────────────────────────────────
+function uploadCoverImage(base64Data, mimeType, templateId) {
+  try {
+    const folder  = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    const blob    = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, 'cover_' + templateId);
+    const file    = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    const fileId  = file.getId();
+    const fileUrl = 'https://lh3.googleusercontent.com/d/' + fileId;
+
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const oldId = data[i][8];
+        if (oldId) { try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {} }
+        sh.getRange(i+1, 9).setValue(fileId);
+        sh.getRange(i+1, 10).setValue(fileUrl);
+        break;
+      }
+    }
+    return { success: true, fileId: fileId, fileUrl: fileUrl };
+  } catch(e) {
+    Logger.log('uploadCoverImage error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function deleteCoverImage(templateId) {
+  try {
+    const sh   = getMasterSheet(MASTER_SHEET_NAMES.TEMPLATES);
+    const data = sh.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][0] === templateId) {
+        const oldId = data[i][8];
+        if (oldId) {
+          try { DriveApp.getFileById(oldId).setTrashed(true); } catch(e) {}
+          sh.getRange(i+1, 9).setValue('');
+          sh.getRange(i+1, 10).setValue('');
+        }
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'ไม่พบเทมเพลต' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Export scores as CSV data (สำหรับ Excel download) ─────────
+function getScoresForExport(templateId) {
+  try {
+    const found = getTemplateRow(templateId);
+    if (!found) return { success: false, error: 'ไม่พบเทมเพลต' };
+
+    const sheetId   = found.data[2];
+    const ss        = SpreadsheetApp.openById(sheetId);
+    const respSheet = ss.getSheetByName('Responses');
+    const data      = respSheet.getDataRange().getValues();
+
+    const rows = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][0]) continue;
+      rows.push({
+        timestamp: data[i][0],
+        name:      data[i][1],
+        phone:     String(data[i][2]),
+        testType:  data[i][3],
+        score:     data[i][5],
+        total:     data[i][6],
+        percent:   data[i][7]
+      });
+    }
+    return { success: true, title: found.data[1], rows: rows };
+  } catch(e) {
+    Logger.log('getScoresForExport error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><?= page === 'student' ? quizTitle : 'ระบบสร้างแบบทดสอบ' ?></title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════
+   DESIGN SYSTEM — Dark Glass / Refined Precision
+   ═══════════════════════════════════════════════ */
+:root {
+  --ink:       #0a0f1e;
+  --ink2:      #1a2035;
+  --ink3:      #242d45;
+  --surface:   #f0f4ff;
+  --surface2:  #e6ecf8;
+  --card:      #ffffff;
+  --border:    #dde3f0;
+  --border2:   #c8d1e8;
+
+  --blue:      #2352d8;
+  --blue-l:    #eef2ff;
+  --blue-d:    #1a3fa8;
+  --blue-glow: rgba(35,82,216,0.18);
+
+  --teal:      #0d9488;
+  --teal-l:    #f0fdfa;
+  --green:     #16a34a;
+  --green-l:   #f0fdf4;
+  --amber:     #d97706;
+  --amber-l:   #fffbeb;
+  --rose:      #e11d48;
+  --rose-l:    #fff1f2;
+  --violet:    #7c3aed;
+  --violet-l:  #f5f3ff;
+  --orange:    #ea580c;
+  --orange-l:  #fff7ed;
+
+  --text:      #0a0f1e;
+  --text2:     #3d4a6b;
+  --text3:     #7a8aaa;
+
+  --r:  12px;
+  --r2: 8px;
+  --r3: 20px;
+
+  --sh:    0 1px 3px rgba(10,15,30,.06), 0 6px 20px rgba(10,15,30,.05);
+  --sh-md: 0 4px 24px rgba(35,82,216,.12);
+  --sh-lg: 0 12px 48px rgba(10,15,30,.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'IBM Plex Sans Thai', sans-serif;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(35,82,216,.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 110%, rgba(13,148,136,.06) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── TOPBAR ── */
+.topbar {
+  background: var(--ink);
+  color: #fff;
+  padding: 0 24px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 300;
+  box-shadow: 0 1px 0 rgba(255,255,255,.06), 0 4px 20px rgba(0,0,0,.3);
+}
+.topbar::after {
+  content:'';
+  position:absolute;
+  bottom:0;left:0;right:0;height:1px;
+  background: linear-gradient(90deg, transparent, rgba(35,82,216,.6), rgba(13,148,136,.4), transparent);
+}
+.topbar-left { display: flex; align-items: center; gap: 12px; }
+.topbar-logo {
+  width: 34px; height: 34px;
+  background: linear-gradient(135deg, var(--blue), var(--teal));
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 0 12px rgba(35,82,216,.5);
+}
+.topbar h1 { font-size: 15px; font-weight: 700; letter-spacing: .01em; }
+.topbar-user {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 20px;
+  padding: 5px 12px 5px 8px;
+  font-size: 13px;
+}
+.topbar-user .avatar {
+  width: 24px; height: 24px;
+  background: linear-gradient(135deg, var(--blue), var(--teal));
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+}
+.nav-tabs { display: flex; gap: 2px; }
+.nav-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,.6);
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all .18s;
+  white-space: nowrap;
+  position: relative;
+}
+.nav-btn:hover { color: #fff; background: rgba(255,255,255,.08); }
+.nav-btn.active { color: #fff; background: rgba(35,82,216,.35); }
+.nav-btn.active::after {
+  content:'';
+  position:absolute;
+  bottom:0; left:50%; transform: translateX(-50%);
+  width: 20px; height: 2px;
+  background: var(--blue);
+  border-radius: 2px;
+}
+.nav-btn.red { color: rgba(225,29,72,.8); }
+.nav-btn.red:hover { background: rgba(225,29,72,.15); color: #fb7185; }
+
+/* ── LAYOUT ── */
+.main { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; position: relative; z-index: 1; }
+.section { display: none; }
+.section.active { display: block; animation: fadeUp .25s ease; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+
+/* ── CARDS ── */
+.card {
+  background: var(--card);
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  padding: 22px 24px;
+  box-shadow: var(--sh);
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title::before {
+  content:'';
+  width:3px; height:14px;
+  background: linear-gradient(to bottom, var(--blue), var(--teal));
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── FORMS ── */
+label { font-size: 12px; font-weight: 600; color: var(--text2); display: block; margin-bottom: 5px; letter-spacing: .02em; }
+input[type=text], input[type=number], input[type=password], input[type=email], textarea, select {
+  width: 100%;
+  padding: 10px 13px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--r2);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: #fff;
+  transition: border .15s, box-shadow .15s;
+  outline: none;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-glow);
+}
+textarea { min-height: 72px; resize: vertical; }
+
+/* ── BUTTONS ── */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 18px;
+  border-radius: var(--r2);
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .17s;
+  white-space: nowrap;
+  position: relative;
+  overflow: hidden;
+}
+.btn::after {
+  content:''; position:absolute; inset:0;
+  background: linear-gradient(to bottom, rgba(255,255,255,.06), transparent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.btn-primary { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(35,82,216,.3); }
+.btn-primary:hover { background: var(--blue-d); box-shadow: 0 4px 16px rgba(35,82,216,.4); transform: translateY(-1px); }
+.btn-success { background: var(--teal); color: #fff; box-shadow: 0 2px 8px rgba(13,148,136,.3); }
+.btn-success:hover { background: #0f766e; transform: translateY(-1px); }
+.btn-danger { background: var(--rose); color: #fff; }
+.btn-danger:hover { background: #be123c; }
+.btn-outline { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
+.btn-outline:hover { background: var(--blue-l); }
+.btn-ghost { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+.btn-ghost:hover { background: var(--border); }
+.btn-sm { padding: 6px 13px; font-size: 12px; }
+.btn-xs { padding: 4px 10px; font-size: 11px; border-radius: 6px; }
+.btn-pdf { background: var(--rose-l); color: var(--rose); border: 1px solid #fecdd3; }
+.btn-pdf:hover { background: #ffe4e6; }
+.btn-word { background: var(--blue-l); color: var(--blue); border: 1px solid #c7d2fe; }
+.btn-word:hover { background: #e0e7ff; }
+.btn-excel { background: var(--green-l); color: var(--green); border: 1px solid #bbf7d0; }
+.btn-excel:hover { background: #dcfce7; }
+.btn-qr { background: var(--ink2); color: #a0aec0; border: 1px solid var(--ink3); }
+.btn-qr:hover { background: var(--ink3); color: #fff; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ─────────────────────────────
+   LOGIN / REGISTER PAGE
+───────────────────────────────*/
+.auth-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ink);
+  position: relative;
+  overflow: hidden;
+}
+.auth-wrap::before {
+  content:'';
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(ellipse 80% 60% at 30% 40%, rgba(35,82,216,.2) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 70% 70%, rgba(13,148,136,.15) 0%, transparent 60%);
+}
+.auth-grid {
+  position: relative; z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 0;
+  width: 100%;
+  max-width: 920px;
+  margin: 24px;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6);
+}
+.auth-hero {
+  background: linear-gradient(145deg, #0a1628 0%, #0d1f3c 100%);
+  padding: 56px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+.auth-hero::after {
+  content:'';
+  position:absolute;
+  bottom:-80px; right:-60px;
+  width:300px; height:300px;
+  border-radius:50%;
+  background: rgba(35,82,216,.12);
+  border: 1px solid rgba(35,82,216,.2);
+}
+.auth-hero-logo { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }
+.auth-hero-icon {
+  width: 44px; height: 44px;
+  background: linear-gradient(135deg, var(--blue), var(--teal));
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  box-shadow: 0 0 20px rgba(35,82,216,.4);
+}
+.auth-hero-brand { font-size: 17px; font-weight: 700; color: #fff; }
+.auth-hero h2 { font-size: 30px; font-weight: 700; color: #fff; line-height: 1.3; margin-bottom: 16px; }
+.auth-hero p { font-size: 14px; color: #6b83b0; line-height: 1.8; }
+.auth-features { display: flex; flex-direction: column; gap: 12px; margin-top: 32px; }
+.auth-feat {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 10px;
+  padding: 11px 14px;
+  font-size: 13px; color: #8fa4cc;
+}
+.auth-feat-icon {
+  width: 28px; height: 28px;
+  background: rgba(35,82,216,.2);
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.auth-panel {
+  background: #fff;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.auth-tabs {
+  display: flex;
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 28px;
+  gap: 4px;
+}
+.auth-tab {
+  flex: 1;
+  padding: 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text3);
+  transition: all .18s;
+}
+.auth-tab.active { background: #fff; color: var(--blue); box-shadow: var(--sh); }
+.auth-form { display: none; }
+.auth-form.active { display: block; }
+.auth-form h3 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.auth-form .sub { font-size: 13px; color: var(--text3); margin-bottom: 24px; }
+.form-group { margin-bottom: 16px; }
+.form-group label { margin-bottom: 6px; }
+.input-wrap { position: relative; }
+.input-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 14px; color: var(--text3); pointer-events: none;
+}
+.input-wrap input { padding-left: 38px; }
+.auth-btn {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--blue), var(--blue-d));
+  color: #fff;
+  border: none;
+  border-radius: var(--r2);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .2s;
+  box-shadow: 0 4px 16px rgba(35,82,216,.35);
+  margin-top: 8px;
+}
+.auth-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(35,82,216,.45); }
+.auth-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+.auth-wait {
+  background: linear-gradient(135deg, #e8edf8, #dde3f5);
+  border: 1.5px solid #c8d1e8;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  display: none;
+}
+.auth-wait-icon { font-size: 32px; margin-bottom: 8px; }
+.auth-wait h4 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.auth-wait p { font-size: 13px; color: var(--text3); }
+.auth-err {
+  background: #fff1f2; border: 1px solid #fecdd3;
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; color: var(--rose);
+  margin-bottom: 14px; display: none;
+}
+.auth-ok {
+  background: #f0fdf4; border: 1px solid #bbf7d0;
+  border-radius: 8px; padding: 10px 14px;
+  font-size: 13px; color: var(--green);
+  margin-bottom: 14px; display: none;
+}
+
+/* ─────────────────────────────
+   ADMIN APPROVAL PANEL
+───────────────────────────────*/
+.approval-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff7ed; border: 1px solid #fed7aa;
+  color: var(--orange); border-radius: 20px;
+  padding: 4px 12px; font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: all .15s;
+}
+.approval-badge:hover { background: #ffedd5; }
+.approval-badge .dot-pulse {
+  width: 7px; height: 7px; background: var(--orange);
+  border-radius: 50%;
+  animation: pulse 1.5s ease infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.5;transform:scale(1.3);} }
+
+/* ─────────────────────────────
+   QUESTION BUILDER
+───────────────────────────────*/
+.q-block {
+  background: var(--card);
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  position: relative;
+  transition: border .15s, box-shadow .15s, transform .15s;
+}
+.q-block:hover { border-color: #93c5fd; box-shadow: var(--sh); transform: translateY(-1px); }
+.q-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.q-badge {
+  min-width: 28px; height: 28px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--blue), var(--teal));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(35,82,216,.25);
+}
+.q-top-input { flex: 1; }
+.q-type-select {
+  padding: 6px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  background: #fff; cursor: pointer;
+  color: var(--text2);
+  width: 44px; min-width: unset;
+  flex-shrink: 0;
+  text-align: center;
+  appearance: none;
+}
+.q-del-btn {
+  position: absolute; top: 13px; right: 13px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  width: 27px; height: 27px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+  transition: all .15s;
+}
+.q-del-btn:hover { background: var(--rose-l); border-color: var(--rose); color: var(--rose); }
+.choices-wrap { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.choice-row { display: flex; align-items: center; gap: 8px; }
+.choice-mark {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; cursor: pointer;
+  transition: all .15s; font-size: 11px;
+}
+.choice-mark.correct { background: var(--teal); border-color: var(--teal); color: #fff; }
+.choice-mark.chk { border-radius: 5px; }
+.choice-mark.chk.correct { background: var(--teal); border-color: var(--teal); color: #fff; }
+.choice-row input[type=text] { flex: 1; }
+.choice-del-btn {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text3); width: 26px; height: 26px;
+  border-radius: 6px; cursor: pointer;
+  font-size: 12px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.choice-del-btn:hover { background: var(--rose-l); border-color: var(--rose); color: var(--rose); }
+.correct-badge { font-size: 11px; color: var(--teal); font-weight: 700; background: var(--teal-l); padding: 2px 8px; border-radius: 20px; }
+.type-hint { font-size: 12px; color: var(--text3); background: var(--surface); padding: 8px 12px; border-radius: 8px; margin-top: 10px; }
+.add-q-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 0;
+  border-top: 2px dashed var(--border2);
+  margin-top: 4px;
+}
+.draft-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--amber-l); border: 1px solid #fde68a;
+  color: var(--amber); border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-weight: 600;
+}
+
+/* ─────────────────────────────
+   SHARE BOX + QR
+───────────────────────────────*/
+.share-box {
+  background: var(--blue-l);
+  border: 1.5px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.share-box input { flex: 1; min-width: 200px; background: #fff; }
+.share-link-label { font-size: 12px; font-weight: 700; color: var(--blue); white-space: nowrap; }
+.qr-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(10,15,30,.7);
+  backdrop-filter: blur(4px);
+  z-index: 8000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s;
+}
+.qr-modal-overlay.show { opacity: 1; pointer-events: auto; }
+.qr-modal {
+  background: #fff; border-radius: 20px;
+  padding: 36px 32px;
+  max-width: 360px; width: 100%;
+  text-align: center;
+  box-shadow: var(--sh-lg);
+  transform: scale(.95); transition: transform .25s;
+}
+.qr-modal-overlay.show .qr-modal { transform: scale(1); }
+.qr-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.qr-sub { font-size: 13px; color: var(--text3); margin-bottom: 20px; }
+#qr-canvas-wrap {
+  width: 200px; height: 200px;
+  margin: 0 auto 20px;
+  border: 8px solid #fff;
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+#qr-canvas-wrap canvas, #qr-canvas-wrap img { width: 100% !important; height: 100% !important; }
+
+/* ─────────────────────────────
+   TEMPLATES
+───────────────────────────────*/
+.tpl-search-bar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--sh);
+}
+.tpl-search-bar input { flex: 1; border: none; background: transparent; padding: 0; font-size: 14px; box-shadow: none !important; }
+.tpl-search-bar input:focus { box-shadow: none !important; border: none; }
+.tpl-filter-wrap { display: flex; gap: 6px; flex-wrap: wrap; }
+.tpl-filter-chip {
+  background: var(--surface2); color: var(--text3);
+  border: 1px solid var(--border); border-radius: 20px;
+  padding: 4px 12px; font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.tpl-filter-chip.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+.tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.tpl-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+  transition: all .2s;
+  position: relative;
+  overflow: hidden;
+}
+.tpl-card:hover { border-color: #93c5fd; box-shadow: var(--sh-md); transform: translateY(-2px); }
+.tpl-card-title { font-size: 15px; font-weight: 700; margin-bottom: 5px; }
+.tpl-card-meta { font-size: 11px; color: var(--text3); margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.tpl-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.tpl-new-badge {
+  position: absolute; top: 11px; right: 11px;
+  background: linear-gradient(135deg, var(--teal), var(--green));
+  color: #fff; font-size: 9px; font-weight: 700;
+  padding: 2px 8px; border-radius: 20px;
+}
+.tpl-count { font-size: 13px; color: var(--text3); font-style: italic; }
+
+/* ─────────────────────────────
+   SUMMARY / DASHBOARD
+───────────────────────────────*/
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 14px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+  border-radius: 12px 12px 0 0;
+}
+.stat-card.pre::before { background: linear-gradient(90deg, var(--blue), #60a5fa); }
+.stat-card.post::before { background: linear-gradient(90deg, var(--teal), #34d399); }
+.stat-card.diff-up::before { background: linear-gradient(90deg, var(--green), #86efac); }
+.stat-card.diff-dn::before { background: linear-gradient(90deg, var(--rose), #fca5a5); }
+.stat-lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.stat-val { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat-val.pre { color: var(--blue); }
+.stat-val.post { color: var(--teal); }
+.stat-val.up { color: var(--green); }
+.stat-val.dn { color: var(--rose); }
+.stat-val.same { color: var(--amber); }
+
+.chart-wrap { position: relative; height: 260px; }
+.sum-selector {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 18px 20px;
+  margin-bottom: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.rtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rtable th {
+  background: var(--surface);
+  padding: 9px 12px; text-align: left;
+  font-weight: 700; color: var(--text2);
+  border-bottom: 1.5px solid var(--border);
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+}
+.rtable td { padding: 9px 12px; border-bottom: 1px solid var(--surface); }
+.rtable tr:last-child td { border-bottom: none; }
+.rtable tr:hover td { background: #fafbff; }
+.pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+.pill-pre { background: var(--blue-l); color: var(--blue); }
+.pill-post { background: var(--teal-l); color: var(--teal); }
+
+/* ─────────────────────────────
+   STUDENT PAGE
+───────────────────────────────*/
+.step { display: none; }
+.step.active { display: block; animation: fadeUp .25s ease; }
+.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+.type-card {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: var(--r);
+  padding: 28px 16px; cursor: pointer;
+  text-align: center; transition: all .22s;
+}
+.type-card:hover { border-color: #93c5fd; transform: translateY(-2px); box-shadow: var(--sh-md); }
+.type-card.sel-pre { border-color: var(--blue); background: var(--blue-l); }
+.type-card.sel-post { border-color: var(--teal); background: var(--teal-l); }
+.type-icon { font-size: 40px; margin-bottom: 10px; }
+.type-lbl { font-size: 19px; font-weight: 800; margin-bottom: 5px; }
+.type-card.sel-pre .type-lbl { color: var(--blue); }
+.type-card.sel-post .type-lbl { color: var(--teal); }
+.type-desc { font-size: 13px; color: var(--text2); line-height: 1.6; }
+.pill-big { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 700; margin-top: 10px; }
+.pill-big-pre { background: var(--blue); color: #fff; }
+.pill-big-post { background: var(--teal); color: #fff; }
+
+.sq-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  transition: border .2s;
+}
+.sq-card.answered { border-color: #6ee7b7; }
+.sq-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.sq-num {
+  background: linear-gradient(135deg, var(--blue), var(--teal));
+  color: #fff; min-width: 28px; height: 28px;
+  border-radius: 7px; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px; flex-shrink: 0; margin-top: 2px;
+}
+.sq-text { font-size: 14px; font-weight: 600; line-height: 1.65; }
+.sq-type-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 20px; margin-left: 8px; vertical-align: middle; }
+.sq-mc   .sq-type-badge { background: var(--blue-l); color: var(--blue); }
+.sq-chk  .sq-type-badge { background: var(--violet-l); color: var(--violet); }
+.sq-drop .sq-type-badge { background: var(--orange-l); color: var(--orange); }
+.sq-txt  .sq-type-badge { background: var(--surface); color: var(--text2); }
+.opt-row {
+  display: flex; align-items: center; gap: 10px;
+  border: 1.5px solid var(--border); border-radius: 9px;
+  padding: 10px 14px; margin-bottom: 7px; cursor: pointer;
+  transition: all .15s; background: #fafcff;
+}
+.opt-row:hover { border-color: #93c5fd; background: var(--blue-l); }
+.opt-row.sel { border-color: var(--blue); background: var(--blue-l); }
+.opt-row input { accent-color: var(--blue); width: 15px; height: 15px; flex-shrink: 0; }
+.opt-letter { font-weight: 700; color: var(--text2); min-width: 22px; font-size: 12px; }
+.chk-row {
+  display: flex; align-items: center; gap: 10px;
+  border: 1.5px solid var(--border); border-radius: 9px;
+  padding: 10px 14px; margin-bottom: 7px; cursor: pointer;
+  transition: all .15s; background: #fafcff;
+}
+.chk-row:hover { border-color: #c4b5fd; background: var(--violet-l); }
+.chk-row.sel { border-color: var(--violet); background: var(--violet-l); }
+.chk-row input { accent-color: var(--violet); width: 15px; height: 15px; flex-shrink: 0; }
+.s-select {
+  width: 100%; padding: 10px 13px;
+  border: 1.5px solid var(--border); border-radius: 9px;
+  font-family: inherit; font-size: 14px;
+  color: var(--text); background: #fff; outline: none; cursor: pointer;
+  transition: border .15s;
+}
+.s-select:focus { border-color: var(--orange); }
+.s-textarea {
+  width: 100%; padding: 10px 13px;
+  border: 1.5px solid var(--border); border-radius: 9px;
+  font-family: inherit; font-size: 14px;
+  color: var(--text); background: #fff; outline: none;
+  resize: vertical; min-height: 90px;
+  transition: border .15s;
+}
+.s-textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-glow); }
+.quiz-prog-bar { height: 4px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-bottom: 18px; }
+.quiz-prog-fill { height: 100%; background: linear-gradient(90deg, var(--blue), var(--teal)); border-radius: 4px; transition: width .4s ease; }
+.result-box { text-align: center; padding: 40px 24px; }
+.r-icon { font-size: 64px; margin-bottom: 12px; }
+.r-pct { font-size: 62px; font-weight: 900; line-height: 1; margin-bottom: 8px; }
+.r-score { font-size: 16px; color: var(--text2); margin-bottom: 6px; }
+.r-msg { font-size: 14px; color: var(--text3); margin-bottom: 28px; }
+
+/* ─────────────────────────────
+   COVER IMAGE
+───────────────────────────────*/
+.cover-upload-area {
+  position: relative; width: 100%; height: 240px;
+  border-radius: 10px; overflow: hidden;
+  background: linear-gradient(135deg, #eef2ff, #dde3f5);
+  border: 2px dashed #c7d2fe;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: pointer; transition: all .2s; margin-bottom: 16px;
+}
+.cover-upload-area:hover { border-color: var(--blue); background: linear-gradient(135deg, #e0e7ff, #c7d2fe); }
+.cover-upload-area.has-image { border: none; cursor: default; }
+.cover-img-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cover-img-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  opacity: 0; transition: opacity .2s;
+}
+.cover-upload-area:hover .cover-img-overlay { opacity: 1; }
+.cover-crop-wrap {
+  position: relative; width: 100%; height: 240px;
+  border-radius: 10px; overflow: hidden;
+  background: #000; margin-bottom: 16px; display: none;
+}
+.cover-crop-img { position: absolute; cursor: grab; user-select: none; touch-action: none; }
+.cover-crop-img:active { cursor: grabbing; }
+.cover-crop-controls { display: none; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.cover-crop-controls.show { display: flex; }
+
+/* ─────────────────────────────
+   MISC / UTILS
+───────────────────────────────*/
+.loading { text-align: center; padding: 48px; color: var(--text3); }
+.spinner {
+  width: 26px; height: 26px;
+  border: 3px solid var(--border);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: inline-block; vertical-align: middle; margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { text-align: center; padding: 48px 24px; color: var(--text3); }
+.empty-icon { font-size: 44px; margin-bottom: 10px; }
+.empty-text { font-size: 14px; }
+.row-flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.section-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
+
+#toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--ink); color: #fff;
+  padding: 11px 18px; border-radius: 10px;
+  font-size: 13px; font-weight: 500;
+  z-index: 9999; opacity: 0; transform: translateY(10px);
+  transition: all .25s; pointer-events: none; max-width: 300px;
+  border-left: 3px solid var(--blue);
+}
+#toast.show { opacity: 1; transform: translateY(0); }
+#toast.success { border-left-color: var(--teal); }
+#toast.error { border-left-color: var(--rose); background: #1a0a0f; }
+
+.nav-warn {
+  background: rgba(217,119,6,.12);
+  border-bottom: 1px solid rgba(217,119,6,.2);
+  padding: 8px 24px;
+  font-size: 12px; color: var(--amber);
+  display: flex; align-items: center; gap: 8px;
+  position: sticky; top: 60px; z-index: 200;
+}
+
+@media(max-width:720px) {
+  .auth-grid { grid-template-columns: 1fr; }
+  .auth-hero { display: none; }
+  .topbar { padding: 0 14px; height: 52px; }
+  .main { padding: 16px 14px 60px; }
+  .nav-btn { padding: 6px 9px; font-size: 12px; }
+  .type-grid { gap: 8px; }
+  .type-card { padding: 18px 10px; }
+  .type-icon { font-size: 30px; }
+  .type-lbl { font-size: 15px; }
+  .tpl-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<? if (page === 'main') { ?>
+<!-- ═══════════════════════════════════════════════════════
+     MAIN PAGE  —  Login + Admin อยู่ในหน้าเดียวกัน
+     แสดง login-wrap ก่อน พอ login สำเร็จค่อย swap DOM
+═══════════════════════════════════════════════════════ -->
+
+<!-- LOGIN SECTION -->
+<div id="login-wrap" style="width:100%;min-height:100vh;">
+  <div class="auth-wrap">
+    <div class="auth-grid">
+      <!-- Hero Side -->
+      <div class="auth-hero">
+        <div>
+          <div class="auth-hero-logo">
+            <div class="auth-hero-icon">📋</div>
+            <span class="auth-hero-brand">EduTest Pro</span>
+          </div>
+          <h2>ระบบสร้างแบบทดสอบ<br>Pre/Post Test</h2>
+          <p>เครื่องมือสร้างแบบทดสอบออนไลน์<br>สำหรับครูและนักการศึกษา ที่ใช้งานง่ายและทรงพลัง</p>
+          <div class="auth-features">
+            <div class="auth-feat"><div class="auth-feat-icon">✏️</div>สร้างแบบทดสอบหลายรูปแบบได้ง่าย</div>
+            <div class="auth-feat"><div class="auth-feat-icon">📊</div>Dashboard วิเคราะห์ผลรายข้อ</div>
+            <div class="auth-feat"><div class="auth-feat-icon">🔒</div>ระบบสิทธิ์ Admin/User แยกกัน</div>
+            <div class="auth-feat"><div class="auth-feat-icon">📤</div>Export PDF, Word, Excel</div>
+          </div>
+        </div>
+        <div style="font-size:11px;color:#374d6b;">© EduTest Pro — Powered by Google Apps Script</div>
+      </div>
+
+      <!-- Form Side -->
+      <div class="auth-panel">
+        <div class="auth-tabs">
+          <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">เข้าสู่ระบบ</button>
+          <button class="auth-tab" id="tab-register" onclick="switchAuthTab('register')">ลงทะเบียน</button>
+        </div>
+
+        <!-- Login Form -->
+        <div class="auth-form active" id="form-login">
+          <h3>ยินดีต้อนรับกลับ 👋</h3>
+          <p class="sub">กรอกข้อมูลเพื่อเข้าสู่ระบบ</p>
+          <div id="login-err" class="auth-err"></div>
+          <div class="form-group">
+            <label>ชื่อผู้ใช้</label>
+            <div class="input-wrap">
+              <span class="input-icon">👤</span>
+              <input type="text" id="login-user" placeholder="username" autocomplete="username">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>รหัสผ่าน</label>
+            <div class="input-wrap">
+              <span class="input-icon">🔑</span>
+              <input type="password" id="login-pass" placeholder="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+            </div>
+          </div>
+          <button class="auth-btn" id="btn-login" onclick="doLogin()">เข้าสู่ระบบ →</button>
+        </div>
+
+        <!-- Register Form -->
+        <div class="auth-form" id="form-register">
+          <h3>สร้างบัญชีใหม่ 🎓</h3>
+          <p class="sub">กรอกข้อมูลเพื่อลงทะเบียน รอการอนุมัติ</p>
+          <div id="reg-err" class="auth-err"></div>
+          <div id="reg-ok" class="auth-ok"></div>
+          <div id="reg-wait" class="auth-wait">
+            <div class="auth-wait-icon">⏳</div>
+            <h4>รอการอนุมัติจากแอดมิน</h4>
+            <p>บัญชีของคุณได้รับการลงทะเบียนแล้ว<br>กรุณารอแอดมินอนุมัติก่อนเข้าใช้งาน</p>
+          </div>
+          <div id="reg-fields">
+            <div class="form-group">
+              <label>ชื่อ-นามสกุล</label>
+              <div class="input-wrap">
+                <span class="input-icon">🪪</span>
+                <input type="text" id="reg-name" placeholder="ชื่อจริง นามสกุล">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>ชื่อผู้ใช้ (username)</label>
+              <div class="input-wrap">
+                <span class="input-icon">👤</span>
+                <input type="text" id="reg-user" placeholder="username">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>รหัสผ่าน</label>
+              <div class="input-wrap">
+                <span class="input-icon">🔑</span>
+                <input type="password" id="reg-pass" placeholder="password">
+              </div>
+            </div>
+            <button class="auth-btn" id="btn-register" onclick="doRegister()">ลงทะเบียน →</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div><!-- end login-wrap -->
+
+<!-- ADMIN SECTION (ซ่อนไว้ก่อน) -->
+<div id="admin-wrap" style="display:none;">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo">📋</div>
+      <h1>EduTest Pro</h1>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-btn active" id="navbtn-editor" onclick="newForm(this)">✏️ สร้าง</button>
+      <button class="nav-btn" id="navbtn-templates" onclick="showTab('templates',this)">📁 เทมเพลต</button>
+      <button class="nav-btn" id="navbtn-summary" onclick="showTab('summary',this)">📊 ผลสรุป</button>
+      <button class="nav-btn red" onclick="clearEditor()">🗑 เคลียร์</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div id="approval-trigger" class="approval-badge" style="display:none;" onclick="showApprovalPanel()">
+        <div class="dot-pulse"></div>
+        <span id="approval-count">0</span> รออนุมัติ
+      </div>
+      <div class="topbar-user" id="topbar-user">
+        <div class="avatar" id="user-avatar">?</div>
+        <span id="user-name-display">-</span>
+        <button onclick="doLogout()" style="background:rgba(255,255,255,.12);border:none;color:rgba(255,255,255,.7);border-radius:5px;padding:2px 8px;font-size:11px;cursor:pointer;font-family:inherit;">ออก</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-warn" id="edit-banner" style="display:none;">
+    ✏️ กำลังแก้ไขเทมเพลต — กด "บันทึกการแก้ไข" เพื่อบันทึก หรือ "เคลียร์" เพื่อยกเลิก
+  </div>
+
+  <div class="main">
+
+    <!-- ── EDITOR ── -->
+    <section id="sec-editor" class="section active">
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div id="cover-upload-area" class="cover-upload-area" onclick="triggerCoverUpload()" style="border-radius:12px 12px 0 0;margin-bottom:0;">
+          <div id="cover-placeholder" style="text-align:center;">
+            <div style="font-size:32px;margin-bottom:6px;">🖼️</div>
+            <div style="font-size:13px;font-weight:600;color:var(--blue);">คลิกเพื่ออัพโหลดรูปปก</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;">PNG, JPG ขนาดไม่เกิน 5MB</div>
+          </div>
+          <img id="cover-preview-img" class="cover-img-preview" style="display:none;" src="" alt="cover">
+          <div class="cover-img-overlay" id="cover-overlay" style="display:none;">
+            <button class="btn btn-sm" style="background:rgba(255,255,255,.9);color:var(--text);" onclick="event.stopPropagation();triggerCoverUpload()">🔄 เปลี่ยน</button>
+            <button class="btn btn-sm" style="background:rgba(225,29,72,.85);color:#fff;" onclick="event.stopPropagation();removeCover()">🗑 ลบ</button>
+          </div>
+        </div>
+        <input type="file" id="cover-file-input" accept="image/*" style="display:none;" onchange="onCoverFileChange(event)">
+        <div id="cover-crop-controls" class="cover-crop-controls" style="padding:10px 20px 0;">
+          <span style="font-size:12px;font-weight:600;color:var(--text2);">🎯 ลากรูปปรับตำแหน่ง:</span>
+          <input type="range" id="cover-zoom" min="100" max="300" value="100" style="flex:1;min-width:100px;accent-color:var(--blue);" oninput="onZoomChange(this.value)">
+          <span id="zoom-val" style="font-size:11px;color:var(--text3);min-width:34px;">100%</span>
+          <button class="btn btn-success btn-sm" onclick="confirmCrop()">✅ ยืนยัน</button>
+          <button class="btn btn-ghost btn-sm" onclick="cancelCrop()">✕</button>
+        </div>
+        <div id="cover-crop-wrap" class="cover-crop-wrap" style="margin:10px 20px 0;display:none;">
+          <img id="cover-crop-img" class="cover-crop-img" src="" alt="">
+        </div>
+        <div style="padding:18px 22px 20px;">
+          <div class="card-title">ข้อมูลแบบทดสอบ</div>
+          <label>ชื่อแบบทดสอบ *</label>
+          <input type="text" id="quiz-title" placeholder="เช่น บทเรียนที่ 1 — แสงและเงา" oninput="draftSave()">
+          <div id="draft-indicator" class="draft-badge" style="margin-top:8px;display:none;">💾 Draft บันทึกอัตโนมัติแล้ว</div>
+        </div>
+      </div>
+
+      <div id="questions-area"></div>
+
+      <div class="add-q-bar">
+        <button class="btn btn-outline" onclick="addQuestion()">➕ เพิ่มคำถาม</button>
+        <span id="q-count" style="color:var(--text3);font-size:12px;">ยังไม่มีคำถาม</span>
+        <button class="btn btn-ghost btn-sm" onclick="restoreDraft()" id="btn-restore-draft" style="display:none;">↩️ กู้ Draft</button>
+      </div>
+
+      <div class="card">
+        <div class="card-title">บันทึก &amp; สร้างลิงก์</div>
+        <p style="color:var(--text3);font-size:12px;margin-bottom:14px;">ระบบจะสร้าง Google Sheet แยกใหม่ใน Drive โดยอัตโนมัติ</p>
+        <div class="row-flex" style="margin-bottom:16px;">
+          <button class="btn btn-primary" id="save-btn" onclick="saveQuiz()">💾 บันทึกและสร้างลิงก์</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadLastTemplate()">🔄 โหลดล่าสุด</button>
+        </div>
+        <div id="share-area" style="display:none;">
+          <div class="share-box">
+            <span class="share-link-label">🔗 ลิงก์นักเรียน:</span>
+            <input type="text" id="share-url" readonly>
+            <button class="btn btn-primary btn-sm" onclick="copyLink('share-url')">📋 คัดลอก</button>
+            <button class="btn btn-qr btn-sm" id="btn-qr-inline" onclick="showQRFor('')">🔲 QR Code</button>
+          </div>
+          <div style="margin-top:10px;">
+            <a id="sheet-link" href="#" target="_blank" class="btn btn-ghost btn-sm">📊 เปิด Google Sheet</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TEMPLATES ── -->
+    <section id="sec-templates" class="section">
+      <div class="section-header">
+        <h2>📁 เทมเพลต</h2>
+        <span id="tpl-count-label" class="tpl-count"></span>
+        <button class="btn btn-ghost btn-sm" onclick="loadTemplates()">🔄 รีเฟรช</button>
+      </div>
+      <div class="tpl-search-bar">
+        <span style="font-size:16px;">🔍</span>
+        <input type="text" id="tpl-search" placeholder="ค้นหาชื่อแบบทดสอบ..." oninput="filterTemplates()">
+      </div>
+      <div class="tpl-filter-wrap" id="tpl-filter-wrap" style="margin-bottom:14px;">
+        <button class="tpl-filter-chip active" onclick="setFilter('all',this)">ทั้งหมด</button>
+        <button class="tpl-filter-chip" onclick="setFilter('today',this)">วันนี้</button>
+        <button class="tpl-filter-chip" onclick="setFilter('week',this)">สัปดาห์นี้</button>
+      </div>
+      <div id="tpl-body"><div class="loading"><span class="spinner"></span>กำลังโหลด...</div></div>
+    </section>
+
+    <!-- ── SUMMARY ── -->
+    <section id="sec-summary" class="section">
+      <div class="sum-selector">
+        <label style="white-space:nowrap;font-weight:700;">📊 เลือกแบบทดสอบ:</label>
+        <select id="sum-select" onchange="loadSummaryFor(this.value)">
+          <option value="">— เลือกแบบทดสอบ —</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="refreshSumSelect()">🔄</button>
+      </div>
+      <div id="summary-body">
+        <div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">เลือกเทมเพลตด้านบนเพื่อดูผลสรุป</div></div>
+      </div>
+    </section>
+
+  </div><!-- end .main -->
+</div><!-- end admin-wrap -->
+
+<div id="toast"></div>
+
+<!-- QR Modal -->
+<div class="qr-modal-overlay" id="qr-modal" onclick="closeQRModal(event)">
+  <div class="qr-modal">
+    <div class="qr-title">📱 QR Code</div>
+    <div class="qr-sub" id="qr-tpl-name">สแกนเพื่อเข้าสู่แบบทดสอบ</div>
+    <div id="qr-canvas-wrap"></div>
+    <p style="font-size:11px;color:var(--text3);margin-bottom:16px;">นักเรียนสแกน QR Code นี้เพื่อเข้าทำแบบทดสอบ</p>
+    <div class="row-flex" style="justify-content:center;gap:10px;">
+      <button class="btn btn-primary btn-sm" onclick="downloadQR()">⬇️ ดาวน์โหลด QR</button>
+      <button class="btn btn-ghost btn-sm" onclick="printQR()">🖨️ พิมพ์</button>
+      <button class="btn btn-ghost btn-sm" onclick="closeQRModal()">✕ ปิด</button>
+    </div>
+  </div>
+</div>
+
+<!-- Approval Modal -->
+<div class="qr-modal-overlay" id="approval-modal" onclick="closeApprovalModal(event)">
+  <div class="qr-modal" style="max-width:480px;">
+    <div class="qr-title">👥 รออนุมัติ</div>
+    <div id="approval-body" style="max-height:300px;overflow-y:auto;margin:16px 0;text-align:left;">
+      <div class="loading"><span class="spinner"></span></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="closeApprovalModal()">ปิด</button>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════
+   UTILITIES
+══════════════════════════════════════════════════════ */
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+var _tt;
+function toast(msg, type) {
+  type = type || '';
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (type ? ' ' + type : '');
+  clearTimeout(_tt);
+  _tt = setTimeout(function(){ el.className = ''; }, 2800);
+}
+
+/* ══════════════════════════════════════════════════════
+   AUTH — LOGIN / REGISTER
+   ✅ แก้ไข: ไม่ล้าง sessionStorage ตอน load
+   ✅ แยก login-wrap / admin-wrap ชัดเจน
+══════════════════════════════════════════════════════ */
+var _currentUser = null;
+var _isAdmin     = false;
+
+function switchAuthTab(tab) {
+  document.getElementById('form-login').classList.toggle('active', tab === 'login');
+  document.getElementById('form-register').classList.toggle('active', tab === 'register');
+  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+}
+
+function doLogin() {
+  var u      = document.getElementById('login-user').value.trim();
+  var p      = document.getElementById('login-pass').value.trim();
+  var errEl  = document.getElementById('login-err');
+  var btn    = document.getElementById('btn-login');
+  errEl.style.display = 'none';
+  if (!u || !p) {
+    errEl.textContent = 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ กำลังตรวจสอบ...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.textContent = 'เข้าสู่ระบบ →';
+      if (res && res.success) {
+        _currentUser = res.user;
+        _isAdmin = (_currentUser.status === 'admin');
+        sessionStorage.setItem('eduUser', JSON.stringify(_currentUser));
+        activateAdmin();
+      } else {
+        errEl.textContent = (res && res.error) || 'เข้าสู่ระบบไม่สำเร็จ';
+        errEl.style.display = 'block';
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'เข้าสู่ระบบ →';
+      errEl.textContent = (err && err.message) || 'เกิดข้อผิดพลาด';
+      errEl.style.display = 'block';
+    })
+    .loginUser(u, p);
+}
+
+function doRegister() {
+  var name   = document.getElementById('reg-name').value.trim();
+  var u      = document.getElementById('reg-user').value.trim();
+  var p      = document.getElementById('reg-pass').value.trim();
+  var errEl  = document.getElementById('reg-err');
+  var btn    = document.getElementById('btn-register');
+  errEl.style.display = 'none';
+  if (!name || !u || !p) {
+    errEl.textContent = 'กรุณากรอกข้อมูลให้ครบ';
+    errEl.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ กำลังลงทะเบียน...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.textContent = 'ลงทะเบียน →';
+      if (res && res.success) {
+        document.getElementById('reg-fields').style.display = 'none';
+        document.getElementById('reg-wait').style.display = 'block';
+      } else {
+        errEl.textContent = (res && res.error) || 'ลงทะเบียนไม่สำเร็จ';
+        errEl.style.display = 'block';
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'ลงทะเบียน →';
+      errEl.textContent = (err && err.message) || 'เกิดข้อผิดพลาด';
+      errEl.style.display = 'block';
+    })
+    .registerUser(u, p, name);
+}
+
+/* ── เมื่อ login สำเร็จ: ซ่อน login-wrap แสดง admin-wrap ── */
+function activateAdmin() {
+  document.getElementById('login-wrap').style.display = 'none';
+  document.getElementById('admin-wrap').style.display = 'block';
+  // แสดงชื่อ user ใน topbar
+  document.getElementById('user-avatar').textContent =
+    ((_currentUser.fullname || _currentUser.username || '?')[0]).toUpperCase();
+  document.getElementById('user-name-display').textContent =
+    _currentUser.fullname || _currentUser.username;
+  // Admin: check pending
+  if (_isAdmin) checkPendingApprovals();
+  // Draft
+  checkDraftExists();
+  // เริ่ม editor
+  addQuestion();
+}
+
+function doLogout() {
+  sessionStorage.removeItem('eduUser');
+  _currentUser = null;
+  _isAdmin     = false;
+  // ซ่อน admin กลับไปหน้า login
+  document.getElementById('admin-wrap').style.display = 'none';
+  document.getElementById('login-wrap').style.display = 'block';
+  // reset login form
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-err').style.display = 'none';
+  toast('ออกจากระบบแล้ว');
+}
+
+/* ── ตรวจ session ที่มีอยู่แล้ว (refresh page) ──
+   ✅ แก้ไข: ไม่ล้าง session ก่อน แต่ตรวจสอบว่ามีอยู่หรือไม่
+   ถ้ามี session → ข้ามหน้า login ทันที               */
+(function checkExistingSession() {
+  try {
+    var raw = sessionStorage.getItem('eduUser');
+    if (raw) {
+      var user = JSON.parse(raw);
+      if (user && user.username) {
+        _currentUser = user;
+        _isAdmin = (user.status === 'admin');
+        activateAdmin();
+      }
+    }
+    // ถ้าไม่มี session ก็แค่แสดง login ตามปกติ (ไม่ต้องทำอะไร)
+  } catch(e) {
+    // session เสียหาย → ล้างและแสดง login
+    sessionStorage.removeItem('eduUser');
+  }
+})();
+
+/* ══════════════════════════════════════════════════════
+   AUTO-SAVE DRAFT
+══════════════════════════════════════════════════════ */
+function _getDraftKey() {
+  return 'edu_draft_' + ((_currentUser && _currentUser.username) || 'anon');
+}
+
+var _draftTimer = null;
+function draftSave() {
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(function() {
+    var title = document.getElementById('quiz-title').value;
+    var draft = { title: title, questions: questions, seq: qIdSeq, ts: Date.now() };
+    try { localStorage.setItem(_getDraftKey(), JSON.stringify(draft)); } catch(e) {}
+    var ind = document.getElementById('draft-indicator');
+    if (ind) { ind.style.display = 'inline-flex'; setTimeout(function(){ ind.style.display = 'none'; }, 2000); }
+  }, 1200);
+}
+
+function checkDraftExists() {
+  try {
+    var raw = localStorage.getItem(_getDraftKey());
+    if (!raw) return;
+    var d = JSON.parse(raw);
+    if (d && d.questions && d.questions.length > 0) {
+      document.getElementById('btn-restore-draft').style.display = 'inline-flex';
+    }
+  } catch(e) {}
+}
+
+function restoreDraft() {
+  try {
+    var raw = localStorage.getItem(_getDraftKey());
+    if (!raw) { toast('ไม่พบ Draft', 'error'); return; }
+    var d = JSON.parse(raw);
+    if (!confirm('กู้คืน Draft: "' + (d.title || 'ไม่มีชื่อ') + '" จำนวน ' + ((d.questions || []).length) + ' ข้อ?')) return;
+    questions = (d.questions || []).map(function(q) { return Object.assign({}, q, { id: ++qIdSeq }); });
+    qIdSeq = d.seq || questions.length;
+    document.getElementById('quiz-title').value = d.title || '';
+    renderQuestions();
+    document.getElementById('btn-restore-draft').style.display = 'none';
+    toast('กู้คืน Draft แล้ว ✅', 'success');
+  } catch(e) { toast('กู้ Draft ไม่ได้: ' + e.message, 'error'); }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(_getDraftKey()); } catch(e) {}
+  document.getElementById('btn-restore-draft').style.display = 'none';
+}
+
+/* ══════════════════════════════════════════════════════
+   APPROVAL
+══════════════════════════════════════════════════════ */
+function checkPendingApprovals() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) return;
+      var n = (res.pending || []).length;
+      if (n > 0) {
+        var t = document.getElementById('approval-trigger');
+        document.getElementById('approval-count').textContent = n;
+        t.style.display = 'flex';
+      }
+    })
+    .getPendingUsers();
+}
+
+function showApprovalPanel() {
+  document.getElementById('approval-modal').classList.add('show');
+  document.getElementById('approval-body').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var html = '';
+      if (!res || !res.success || !res.pending || !res.pending.length) {
+        html = '<div class="empty-state" style="padding:20px;"><div class="empty-icon">✅</div><div class="empty-text">ไม่มีผู้ใช้รออนุมัติ</div></div>';
+      } else {
+        res.pending.forEach(function(u) {
+          html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:8px;">' +
+            '<div><div style="font-weight:600;font-size:13px;">' + esc(u.fullname) + '</div>' +
+            '<div style="font-size:11px;color:var(--text3);">@' + esc(u.username) + '</div></div>' +
+            '<button class="btn btn-success btn-sm" onclick="approveUser(\'' + esc(u.username) + '\',this)">✅ อนุมัติ</button>' +
+            '</div>';
+        });
+      }
+      document.getElementById('approval-body').innerHTML = html;
+    })
+    .getPendingUsers();
+}
+
+function approveUser(username, btn) {
+  btn.disabled = true; btn.textContent = '⏳';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        toast('อนุมัติ @' + username + ' แล้ว ✅', 'success');
+        btn.parentElement.remove();
+        checkPendingApprovals();
+      } else {
+        btn.disabled = false; btn.textContent = '✅ อนุมัติ';
+        toast((res && res.error) || 'เกิดข้อผิดพลาด', 'error');
+      }
+    })
+    .approveUser(username);
+}
+
+function closeApprovalModal(e) {
+  if (!e || e.target === document.getElementById('approval-modal'))
+    document.getElementById('approval-modal').classList.remove('show');
+}
+
+/* ══════════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════════ */
+var questions         = [];
+var qIdSeq            = 0;
+var _lastSavedCount   = 0;
+var _lastSavedTitle   = '';
+var _editingTemplateId= null;
+var _allTemplates     = [];
+var _filterActive     = 'all';
+
+function _isDirty() {
+  if (!questions.length) return false;
+  var t = document.getElementById('quiz-title').value.trim();
+  return questions.length !== _lastSavedCount || t !== _lastSavedTitle;
+}
+
+var Q_TYPES = [
+  { val:'mc',       label:'🔘', hint:'นักเรียนเลือก 1 ข้อ' },
+  { val:'checkbox', label:'☑️', hint:'เลือกได้หลายข้อ' },
+  { val:'dropdown', label:'🔽', hint:'เลือกจากเมนู' },
+  { val:'text',     label:'✏️', hint:'พิมพ์คำตอบเอง ไม่ตรวจอัตโนมัติ' }
+];
+
+/* ══════════════════════════════════════════════════════
+   TABS
+══════════════════════════════════════════════════════ */
+function showTab(tab, btn) {
+  document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('sec-' + tab).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (tab === 'templates') loadTemplates();
+  if (tab === 'summary')   refreshSumSelect();
+}
+
+function newForm(btn) {
+  if (_isDirty()) {
+    if (!confirm('มีข้อมูลที่ยังไม่บันทึก ' + questions.length + ' ข้อ\nล้างและเริ่มใหม่?')) {
+      showTab('editor', document.getElementById('navbtn-editor')); return;
+    }
+  }
+  questions = []; qIdSeq = 0; _lastSavedCount = 0; _lastSavedTitle = ''; _editingTemplateId = null;
+  document.getElementById('quiz-title').value = '';
+  document.getElementById('share-area').style.display = 'none';
+  document.getElementById('edit-banner').style.display = 'none';
+  var sb = document.getElementById('save-btn');
+  sb.textContent = '💾 บันทึกและสร้างลิงก์'; sb.onclick = saveQuiz; sb.disabled = false;
+  resetCoverUI(); renderQuestions(); showTab('editor', btn); addQuestion();
+  toast('เริ่มฟอร์มใหม่ ✅', 'success');
+}
+
+/* ══════════════════════════════════════════════════════
+   COVER IMAGE
+══════════════════════════════════════════════════════ */
+var _coverBase64 = null, _coverMime = null, _coverFileUrl = null;
+var _dragStartX = 0, _dragStartY = 0, _imgOffsetX = 0, _imgOffsetY = 0, _dragging = false;
+var _zoomLevel = 100, _originalBase64 = null, _originalMime = null;
+
+function triggerCoverUpload() { document.getElementById('cover-file-input').click(); }
+function onCoverFileChange(e) {
+  var f = e.target.files[0]; if (!f) return;
+  if (f.size > 5*1024*1024) { toast('ไฟล์ใหญ่เกิน 5MB', 'error'); return; }
+  var r = new FileReader();
+  r.onload = function(ev) { _originalBase64 = ev.target.result.split(',')[1]; _originalMime = f.type; showCropUI(ev.target.result); };
+  r.readAsDataURL(f); e.target.value = '';
+}
+function showCropUI(dataUrl) {
+  var ci = document.getElementById('cover-crop-img'), cw = document.getElementById('cover-crop-wrap'), cc = document.getElementById('cover-crop-controls');
+  ci.src = dataUrl; _imgOffsetX = 0; _imgOffsetY = 0; _zoomLevel = 100;
+  document.getElementById('cover-zoom').value = 100; document.getElementById('zoom-val').textContent = '100%';
+  cw.style.display = 'block'; cc.style.display = 'flex';
+  document.getElementById('cover-upload-area').style.display = 'none';
+  ci.style.transform = 'translate(0,0) scale(1)'; setupDrag(ci);
+}
+function setupDrag(img) {
+  img.onmousedown = function(e){ _dragging=true; _dragStartX=e.clientX-_imgOffsetX; _dragStartY=e.clientY-_imgOffsetY; e.preventDefault(); };
+  document.onmousemove = function(e){ if(!_dragging)return; _imgOffsetX=e.clientX-_dragStartX; _imgOffsetY=e.clientY-_dragStartY; updateCropTransform(); };
+  document.onmouseup = function(){ _dragging=false; };
+  img.ontouchstart = function(e){ _dragging=true; _dragStartX=e.touches[0].clientX-_imgOffsetX; _dragStartY=e.touches[0].clientY-_imgOffsetY; };
+  img.ontouchmove = function(e){ if(!_dragging)return; _imgOffsetX=e.touches[0].clientX-_dragStartX; _imgOffsetY=e.touches[0].clientY-_dragStartY; updateCropTransform(); e.preventDefault(); };
+  img.ontouchend = function(){ _dragging=false; };
+}
+function onZoomChange(v){ _zoomLevel=parseInt(v); document.getElementById('zoom-val').textContent=v+'%'; updateCropTransform(); }
+function updateCropTransform(){ var i=document.getElementById('cover-crop-img'); i.style.transform='translate('+_imgOffsetX+'px,'+_imgOffsetY+'px) scale('+(_zoomLevel/100)+')'; i.style.transformOrigin='top left'; }
+function confirmCrop(){
+  var ci=document.getElementById('cover-crop-img'), wrap=document.getElementById('cover-crop-wrap');
+  _coverBase64=_originalBase64; _coverMime=_originalMime;
+  var maxX=ci.naturalWidth*(_zoomLevel/100)-wrap.offsetWidth, maxY=ci.naturalHeight*(_zoomLevel/100)-wrap.offsetHeight;
+  var px=maxX>0?Math.min(100,Math.max(0,(-_imgOffsetX/maxX)*100)):50;
+  var py=maxY>0?Math.min(100,Math.max(0,(-_imgOffsetY/maxY)*100)):50;
+  var prev=document.getElementById('cover-preview-img');
+  prev.src=ci.src; prev.style.display='block'; prev.style.objectFit='cover'; prev.style.objectPosition=px+'% '+py+'%';
+  prev.style.width='100%'; prev.style.height='100%'; prev.style.position='absolute'; prev.style.inset='0';
+  document.getElementById('cover-overlay').style.display='flex'; document.getElementById('cover-placeholder').style.display='none';
+  document.getElementById('cover-upload-area').classList.add('has-image'); document.getElementById('cover-upload-area').style.display='flex';
+  wrap.style.display='none'; document.getElementById('cover-crop-controls').style.display='none';
+  toast('อัพโหลดรูปปกแล้ว ✅','success');
+}
+function cancelCrop(){
+  document.getElementById('cover-crop-wrap').style.display='none'; document.getElementById('cover-crop-controls').style.display='none';
+  document.getElementById('cover-upload-area').style.display='flex'; _originalBase64=null; _originalMime=null;
+}
+function removeCover(){
+  if(!confirm('ลบรูปปก?'))return; _coverBase64=null; _coverMime=null; _coverFileUrl=null;
+  document.getElementById('cover-preview-img').style.display='none'; document.getElementById('cover-overlay').style.display='none';
+  document.getElementById('cover-placeholder').style.display='block'; document.getElementById('cover-upload-area').classList.remove('has-image');
+  toast('ลบรูปปก','success');
+}
+function resetCoverUI(){
+  _coverBase64=null; _coverMime=null; _coverFileUrl=null; _originalBase64=null; _originalMime=null;
+  document.getElementById('cover-preview-img').style.display='none'; document.getElementById('cover-preview-img').style.transform='';
+  document.getElementById('cover-overlay').style.display='none'; document.getElementById('cover-placeholder').style.display='block';
+  document.getElementById('cover-upload-area').classList.remove('has-image'); document.getElementById('cover-upload-area').style.display='flex';
+  document.getElementById('cover-crop-wrap').style.display='none'; document.getElementById('cover-crop-controls').style.display='none';
+}
+
+/* ══════════════════════════════════════════════════════
+   QR CODE
+══════════════════════════════════════════════════════ */
+var _qrUrl = '';
+function showQRFor(url) {
+  if (!url) url = document.getElementById('share-url').value;
+  if (!url) { toast('ยังไม่มีลิงก์','error'); return; }
+  _qrUrl = url;
+  var wrap = document.getElementById('qr-canvas-wrap');
+  wrap.innerHTML = '';
+  try {
+    new QRCode(wrap, { text: url, width: 200, height: 200, colorDark: '#0a0f1e', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H });
+  } catch(e) { wrap.innerHTML = '<div style="padding:20px;font-size:12px;color:var(--text3);">ไม่สามารถสร้าง QR ได้</div>'; }
+  document.getElementById('qr-modal').classList.add('show');
+}
+function closeQRModal(e) {
+  if (!e || e.target === document.getElementById('qr-modal'))
+    document.getElementById('qr-modal').classList.remove('show');
+}
+function downloadQR() {
+  var img = document.querySelector('#qr-canvas-wrap img') || document.querySelector('#qr-canvas-wrap canvas');
+  if (!img) return;
+  var a = document.createElement('a'); a.download = 'qr_code.png';
+  if (img.tagName === 'CANVAS') a.href = img.toDataURL(); else a.href = img.src;
+  a.click(); toast('ดาวน์โหลด QR แล้ว ✅','success');
+}
+function printQR() {
+  var img = document.querySelector('#qr-canvas-wrap img') || document.querySelector('#qr-canvas-wrap canvas');
+  if (!img) return;
+  var src = img.tagName==='CANVAS' ? img.toDataURL() : img.src;
+  var w = window.open('','_blank');
+  w.document.write('<html><body style="text-align:center;padding:40px;"><img src="'+src+'" style="width:300px;"><p style="font-size:14px;margin-top:16px;">'+esc(_qrUrl)+'</p><script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.close();
+}
+
+/* ══════════════════════════════════════════════════════
+   QUESTION BUILDER
+══════════════════════════════════════════════════════ */
+function addQuestion(data) {
+  var id = ++qIdSeq;
+  var q  = data || { id: id, type: 'mc', questionText: '', choices: ['','','',''], correctAnswer: 0 };
+  if (!data) { q.id = id; questions.push(q); }
+  renderQuestions(); draftSave();
+  setTimeout(function(){ var el = document.getElementById('q-'+id); if (el) el.scrollIntoView({ behavior:'smooth', block:'center' }); }, 80);
+}
+
+function removeQuestion(id) { questions = questions.filter(function(q){ return q.id !== id; }); renderQuestions(); draftSave(); }
+
+function renderQuestions() {
+  var area = document.getElementById('questions-area'); area.innerHTML = '';
+  questions.forEach(function(q, idx) {
+    var div = document.createElement('div'); div.className = 'q-block'; div.id = 'q-'+q.id;
+    var opts = Q_TYPES.map(function(t){ return '<option value="'+t.val+'"'+(q.type===t.val?' selected':'')+'>'+t.label+'</option>'; }).join('');
+    div.innerHTML =
+      '<button class="q-del-btn" onclick="removeQuestion('+q.id+')">✕</button>' +
+      '<div class="q-top">' +
+        '<div class="q-badge">'+(idx+1)+'</div>' +
+        '<input class="q-top-input" type="text" placeholder="พิมพ์คำถาม..." value="'+esc(q.questionText)+'" oninput="updateQ('+q.id+',\'questionText\',this.value);draftSave()">' +
+        '<select class="q-type-select" onchange="changeType('+q.id+',this.value)">'+opts+'</select>' +
+      '</div>' +
+      '<div id="q-body-'+q.id+'"></div>';
+    area.appendChild(div); renderQBody(q);
+  });
+  document.getElementById('q-count').textContent = questions.length ? questions.length + ' คำถาม' : 'ยังไม่มีคำถาม';
+}
+
+function renderQBody(q) {
+  var body = document.getElementById('q-body-'+q.id); if (!body) return;
+  var hint = (Q_TYPES.find(function(t){ return t.val === q.type; }) || {}).hint || '';
+  if (q.type === 'mc' || q.type === 'dropdown') {
+    var h = '<div class="choices-wrap">';
+    q.choices.forEach(function(ch, ci) {
+      var L = String.fromCharCode(65+ci), isC = q.correctAnswer === ci;
+      h += '<div class="choice-row">' +
+        '<div class="choice-mark'+(isC?' correct':'')+'" onclick="setCorrectMC('+q.id+','+ci+')">'+(isC?'✓':L)+'</div>' +
+        '<input type="text" placeholder="ตัวเลือก '+L+'..." value="'+esc(ch)+'" oninput="updateChoice('+q.id+','+ci+',this.value);draftSave()">' +
+        (q.choices.length > 2 ? '<button class="choice-del-btn" onclick="removeChoice('+q.id+','+ci+')">✕</button>' : '') +
+        (isC ? '<span class="correct-badge">✔ เฉลย</span>' : '') +
+      '</div>';
+    });
+    h += '</div><div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      (q.choices.length < 6 ? '<button class="btn btn-outline btn-sm" onclick="addChoice('+q.id+')">➕ ตัวเลือก</button>' : '') +
+      '<span style="font-size:11px;color:var(--text3);">เฉลย: <strong style="color:var(--teal)">ข้อ '+(q.correctAnswer+1)+'</strong></span>' +
+    '</div><div class="type-hint">💡 '+hint+'</div>';
+    body.innerHTML = h;
+  } else if (q.type === 'checkbox') {
+    var ca = Array.isArray(q.correctAnswer) ? q.correctAnswer : [];
+    var h = '<div class="choices-wrap">';
+    q.choices.forEach(function(ch, ci) {
+      var L = String.fromCharCode(65+ci), isC = ca.includes(ci);
+      h += '<div class="choice-row">' +
+        '<div class="choice-mark chk'+(isC?' correct':'')+'" onclick="toggleCorrectChk('+q.id+','+ci+')">'+(isC?'✓':L)+'</div>' +
+        '<input type="text" placeholder="ตัวเลือก '+L+'..." value="'+esc(ch)+'" oninput="updateChoice('+q.id+','+ci+',this.value);draftSave()">' +
+        (q.choices.length > 2 ? '<button class="choice-del-btn" onclick="removeChoice('+q.id+','+ci+')">✕</button>' : '') +
+        (isC ? '<span class="correct-badge">✔ เฉลย</span>' : '') +
+      '</div>';
+    });
+    var cl = ca.map(function(i){ return String.fromCharCode(65+i); }).join(', ') || 'ยังไม่ได้เลือก';
+    h += '</div><div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+      (q.choices.length < 6 ? '<button class="btn btn-outline btn-sm" onclick="addChoice('+q.id+')">➕ ตัวเลือก</button>' : '') +
+      '<span style="font-size:11px;color:var(--text3);">เฉลย: <strong style="color:var(--teal)">'+cl+'</strong></span>' +
+    '</div><div class="type-hint">💡 '+hint+' — คลิกวงกลมเพื่อเลือกหลายเฉลย</div>';
+    body.innerHTML = h;
+  } else {
+    body.innerHTML = '<div class="type-hint" style="margin-top:8px;">✏️ '+hint+'</div>';
+  }
+}
+
+function updateQ(id, f, v){ var q = questions.find(function(q){ return q.id === id; }); if (q) q[f] = v; }
+function changeType(id, type){
+  var q = questions.find(function(q){ return q.id === id; }); if (!q) return; q.type = type;
+  if (type==='mc'||type==='dropdown'){ if(!q.choices||!q.choices.length)q.choices=['','','','']; if(typeof q.correctAnswer!=='number')q.correctAnswer=0; }
+  else if (type==='checkbox'){ if(!q.choices||!q.choices.length)q.choices=['','','','']; if(!Array.isArray(q.correctAnswer))q.correctAnswer=[]; }
+  else q.correctAnswer = null;
+  renderQBody(q); draftSave();
+}
+function updateChoice(qid, ci, v){ var q=questions.find(function(q){ return q.id===qid; }); if(q)q.choices[ci]=v; }
+function setCorrectMC(qid, ci){ var q=questions.find(function(q){ return q.id===qid; }); if(!q)return; q.correctAnswer=ci; renderQBody(q); draftSave(); }
+function toggleCorrectChk(qid, ci){
+  var q=questions.find(function(q){ return q.id===qid; }); if(!q)return;
+  if(!Array.isArray(q.correctAnswer))q.correctAnswer=[];
+  var idx=q.correctAnswer.indexOf(ci);
+  if(idx>-1)q.correctAnswer.splice(idx,1); else q.correctAnswer.push(ci);
+  q.correctAnswer.sort(function(a,b){ return a-b; }); renderQBody(q); draftSave();
+}
+function addChoice(qid){ var q=questions.find(function(q){ return q.id===qid; }); if(!q||q.choices.length>=6)return; q.choices.push(''); renderQBody(q); draftSave(); }
+function removeChoice(qid, ci){
+  var q=questions.find(function(q){ return q.id===qid; }); if(!q||q.choices.length<=2)return;
+  q.choices.splice(ci,1);
+  if(q.type==='mc'&&q.correctAnswer>=q.choices.length)q.correctAnswer=0;
+  if(q.type==='checkbox')q.correctAnswer=(q.correctAnswer||[]).filter(function(i){ return i<q.choices.length; });
+  renderQBody(q); draftSave();
+}
+
+/* ══════════════════════════════════════════════════════
+   SAVE QUIZ
+══════════════════════════════════════════════════════ */
+function saveQuiz() {
+  if (!questions.length){ toast('กรุณาเพิ่มคำถามอย่างน้อย 1 ข้อ','error'); return; }
+  var title = document.getElementById('quiz-title').value.trim();
+  if (!title){ toast('กรุณากรอกชื่อแบบทดสอบ','error'); return; }
+  for (var i=0; i<questions.length; i++){
+    if(!questions[i].questionText.trim()){ toast('กรุณากรอกคำถามทุกข้อ','error'); return; }
+    if(questions[i].type!=='text') for(var j=0;j<(questions[i].choices||[]).length;j++)
+      if(!questions[i].choices[j].trim()){ toast('กรุณากรอกตัวเลือกให้ครบ','error'); return; }
+  }
+  var btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.onclick = null; btn.textContent = '⏳ กำลังสร้าง Sheet...';
+  var clean = questions.map(function(q){
+    return { type:q.type||'mc', questionText:String(q.questionText||''), choices:(q.choices||[]).map(function(c){ return String(c||''); }), correctAnswer:q.correctAnswer!==undefined?q.correctAnswer:null };
+  });
+  var payload = JSON.stringify({ title:title, questions:clean, createdBy:(_currentUser&&_currentUser.username)||'' });
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled = false; btn.textContent = '💾 บันทึกและสร้างลิงก์';
+      if (!res){ toast('ไม่ได้รับข้อมูลกลับ','error'); return; }
+      if (res.success){
+        _lastSavedCount = questions.length; _lastSavedTitle = title;
+        var _su = res.shareUrl || '', _tid = res.templateId || '';
+        clearDraft();
+        if (_coverBase64 && _coverMime){
+          btn.textContent = '⏳ กำลังอัพโหลดรูป...';
+          google.script.run.withSuccessHandler(function(ir){ if(ir&&ir.success)_coverFileUrl=ir.fileUrl; showSharePopup(_su); }).withFailureHandler(function(){ showSharePopup(_su); }).uploadCoverImage(_coverBase64,_coverMime,_tid);
+        } else showSharePopup(_su);
+      } else toast('เกิดข้อผิดพลาด: '+(res.error||''),'error');
+    })
+    .withFailureHandler(function(err){
+      btn.disabled = false; btn.textContent = '💾 บันทึกและสร้างลิงก์'; btn.onclick = saveQuiz;
+      toast((err&&err.message)||'เกิดข้อผิดพลาด','error');
+    })
+    .saveQuestions(payload);
+}
+
+/* ══════════════════════════════════════════════════════
+   SHARE POPUP
+══════════════════════════════════════════════════════ */
+function showSharePopup(shareUrl) {
+  var ov = document.createElement('div');
+  ov.id = 'share-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(10,15,30,.7);backdrop-filter:blur(4px);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  var qrId = 'popup-qr-wrap';
+  ov.innerHTML =
+    '<div style="background:#fff;border-radius:20px;padding:36px 30px;max-width:460px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.3);">' +
+    '<div style="text-align:center;margin-bottom:22px;"><div style="font-size:48px;margin-bottom:10px;">🎉</div>' +
+    '<div style="font-size:17px;font-weight:800;">บันทึกสำเร็จ!</div>' +
+    '<div style="font-size:12px;color:var(--text3);margin-top:4px;">คัดลอกลิงก์หรือสแกน QR ให้นักเรียน</div></div>' +
+    '<div style="background:var(--blue-l);border:1.5px solid #c7d2fe;border-radius:10px;padding:14px;margin-bottom:14px;">' +
+    '<div style="font-size:11px;font-weight:700;color:var(--blue);margin-bottom:8px;">🔗 ลิงก์สำหรับนักเรียน:</div>' +
+    '<input id="popup-url" type="text" readonly value="'+esc(shareUrl)+'" style="width:100%;background:#fff;border:1.5px solid #c7d2fe;border-radius:7px;padding:9px 12px;font-size:12px;outline:none;">' +
+    '</div>' +
+    '<div id="'+qrId+'" style="display:flex;justify-content:center;margin-bottom:16px;"></div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button onclick="copyPopupLink()" class="btn btn-primary btn-sm" style="flex:1;">📋 คัดลอก</button>' +
+    '<button onclick="showQRFor(\''+esc(shareUrl)+'\')" class="btn btn-qr btn-sm" style="flex:1;">🔲 QR ใหญ่</button>' +
+    '<button onclick="closeSharePopup()" class="btn btn-success btn-sm" style="flex:1;">✅ ตกลง</button>' +
+    '</div></div>';
+  document.body.appendChild(ov);
+  try {
+    var wrapEl = document.getElementById(qrId);
+    var qDiv = document.createElement('div'); wrapEl.appendChild(qDiv);
+    new QRCode(qDiv, { text:shareUrl, width:100, height:100, colorDark:'#0a0f1e', colorLight:'#ffffff', correctLevel:QRCode.CorrectLevel.M });
+  } catch(e){}
+}
+function copyPopupLink(){ var u=document.getElementById('popup-url').value; navigator.clipboard.writeText(u).then(function(){ toast('คัดลอกลิงก์แล้ว ✅','success'); }); }
+function closeSharePopup(){
+  var ov = document.getElementById('share-overlay'); if(ov)ov.remove();
+  questions=[]; qIdSeq=0; _lastSavedCount=0; _lastSavedTitle=''; _editingTemplateId=null;
+  document.getElementById('quiz-title').value=''; document.getElementById('share-area').style.display='none';
+  document.getElementById('edit-banner').style.display='none';
+  var sb=document.getElementById('save-btn'); sb.textContent='💾 บันทึกและสร้างลิงก์'; sb.onclick=saveQuiz; sb.disabled=false;
+  resetCoverUI(); renderQuestions(); addQuestion(); toast('พร้อมสร้างแบบทดสอบใหม่ ✅','success');
+}
+
+function clearEditor(){
+  if(!confirm('เคลียร์ข้อมูลในหน้าสร้างคำถาม?'))return;
+  questions=[]; qIdSeq=0; document.getElementById('quiz-title').value=''; document.getElementById('share-area').style.display='none';
+  document.getElementById('edit-banner').style.display='none'; _editingTemplateId=null;
+  var sb=document.getElementById('save-btn'); sb.textContent='💾 บันทึกและสร้างลิงก์'; sb.onclick=saveQuiz; sb.disabled=false;
+  renderQuestions(); clearDraft(); toast('เคลียร์แล้ว','success');
+}
+
+function loadLastTemplate(){
+  toast('กำลังโหลด...');
+  google.script.run.withSuccessHandler(function(res){
+    if(res&&res.success&&res.templates&&res.templates.length) loadTemplateIntoEditor(res.templates[0].templateId);
+    else toast('ยังไม่มีเทมเพลต','error');
+  }).getTemplates(_currentUser&&_currentUser.username, _isAdmin);
+}
+
+function loadTemplateIntoEditor(tid){
+  toast('กำลังโหลดคำถาม...');
+  google.script.run.withSuccessHandler(function(res){
+    if(res&&res.success&&res.questions&&res.questions.length){
+      questions=res.questions.map(function(q){ return Object.assign({},q,{id:++qIdSeq}); });
+      document.getElementById('quiz-title').value=res.title||'';
+      renderQuestions(); toast('โหลด '+res.questions.length+' คำถาม','success');
+      showTab('editor',document.getElementById('navbtn-editor'));
+    } else toast('ไม่พบคำถาม','error');
+  }).getQuestionsForTemplate(tid);
+}
+
+function copyLink(inputId){ navigator.clipboard.writeText(document.getElementById(inputId).value).then(function(){ toast('คัดลอกแล้ว ✅','success'); }); }
+
+/* ══════════════════════════════════════════════════════
+   TEMPLATES
+══════════════════════════════════════════════════════ */
+function loadTemplates() {
+  document.getElementById('tpl-body').innerHTML = '<div class="loading"><span class="spinner"></span>กำลังโหลด...</div>';
+  google.script.run.withSuccessHandler(function(res){
+    if(!res||!res.success){ document.getElementById('tpl-body').innerHTML='<p style="color:var(--rose)">เกิดข้อผิดพลาด</p>'; return; }
+    _allTemplates = (res.templates || []);
+    renderTemplatesList(_allTemplates);
+    document.getElementById('tpl-count-label').textContent = _allTemplates.length + ' รายการ';
+  }).getTemplates(_currentUser&&_currentUser.username, _isAdmin);
+}
+
+function setFilter(mode, btn){
+  _filterActive = mode;
+  document.querySelectorAll('.tpl-filter-chip').forEach(function(c){ c.classList.remove('active'); });
+  btn.classList.add('active');
+  filterTemplates();
+}
+function filterTemplates(){
+  var q = (document.getElementById('tpl-search').value||'').toLowerCase();
+  var now = Date.now();
+  var list = _allTemplates.filter(function(t){
+    if(q&&!t.title.toLowerCase().includes(q))return false;
+    if(_filterActive==='today'){ var d=new Date(t.createdAt); return(now-d.getTime())<86400000; }
+    if(_filterActive==='week'){  var d=new Date(t.createdAt); return(now-d.getTime())<7*86400000; }
+    return true;
+  });
+  renderTemplatesList(list);
+  document.getElementById('tpl-count-label').textContent = list.length+'/'+_allTemplates.length+' รายการ';
+}
+function renderTemplatesList(templates){
+  var body = document.getElementById('tpl-body');
+  if(!templates||!templates.length){ body.innerHTML='<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-text">ไม่มีเทมเพลต</div></div>'; return; }
+  var now = Date.now();
+  var html = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:var(--surface);border-radius:9px;border:1px solid var(--border);">'+
+    '<input type="checkbox" id="chk-all" onchange="toggleSelectAll(this.checked)" style="width:15px;height:15px;accent-color:var(--rose);cursor:pointer;">'+
+    '<label for="chk-all" style="font-size:12px;font-weight:600;cursor:pointer;margin:0;">เลือกทั้งหมด</label>'+
+    '<button class="btn btn-xs" id="btn-delete-selected" style="background:var(--rose);color:#fff;display:none;" onclick="deleteSelected()">🗑 ลบที่เลือก</button>'+
+  '</div><div class="tpl-grid">';
+  templates.forEach(function(t){
+    var d=new Date(t.createdAt), ds=isNaN(d)?'':d.toLocaleDateString('th-TH',{day:'2-digit',month:'short',year:'numeric'});
+    var isNew=(now-d.getTime())<86400000;
+    var coverHtml=t.coverImageUrl
+      ?'<div style="width:calc(100%+40px);height:130px;border-radius:8px 8px 0 0;overflow:hidden;margin:-18px -20px 14px;background:#e2e8f0;"><img src="'+esc(t.coverImageUrl)+'" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.parentElement.style.background=\'linear-gradient(135deg,#dde3f5,#c7d2fe)\';this.style.display=\'none\'"></div>'
+      :'<div style="width:calc(100%+40px);height:5px;margin:-18px -20px 14px;background:linear-gradient(90deg,var(--blue),var(--teal));border-radius:8px 8px 0 0;"></div>';
+    var canEdit=_isAdmin||(t.createdBy&&t.createdBy.toLowerCase()===(_currentUser&&_currentUser.username||'').toLowerCase());
+    var editBtn=canEdit?'<button class="btn btn-xs" style="background:var(--blue-l);color:var(--blue);" onclick="editTpl(\''+t.templateId+'\')">✏️ แก้ไข</button>':'';
+    var delBtn=canEdit?'<button class="btn btn-xs" style="background:var(--rose-l);color:var(--rose);" onclick="deleteTpl(\''+t.templateId+'\')">🗑 ลบ</button>':'';
+    html += '<div class="tpl-card" id="tplcard-'+t.templateId+'" style="overflow:hidden;padding-top:18px;">' +
+      coverHtml +
+      '<div style="position:absolute;top:10px;left:10px;z-index:2;">' +
+        '<input type="checkbox" class="tpl-chk" value="'+t.templateId+'" onchange="onTplChkChange()" style="width:14px;height:14px;accent-color:var(--rose);cursor:pointer;">' +
+      '</div>' +
+      (isNew?'<span class="tpl-new-badge" style="z-index:2;">ใหม่</span>':'') +
+      '<div class="tpl-card-title">'+esc(t.title)+'</div>' +
+      '<div class="tpl-card-meta">' +
+        '<span>📝 '+t.questionCount+' ข้อ</span>' +
+        '<span>📅 '+ds+'</span>' +
+        (t.createdBy?'<span>👤 '+esc(t.createdBy)+'</span>':'') +
+      '</div>' +
+      '<div class="tpl-actions">' +
+        '<button class="btn btn-xs" style="background:var(--teal-l);color:var(--teal);" onclick="copyTplLink(\''+esc(t.shareUrl)+'\')">🔗 ลิงก์</button>' +
+        '<button class="btn btn-xs btn-qr" onclick="showQRFor(\''+esc(t.shareUrl)+'\')">🔲 QR</button>' +
+        editBtn + delBtn +
+        '<a href="'+esc(t.sheetUrl)+'" target="_blank" class="btn btn-xs" style="background:var(--green-l);color:var(--green);">📊 Sheet</a>' +
+        '<button class="btn btn-xs" style="background:var(--violet-l);color:var(--violet);" onclick="showSummaryModal(\''+t.templateId+'\')">📈 สรุป</button>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function copyTplLink(url){ navigator.clipboard.writeText(url).then(function(){ toast('คัดลอกลิงก์แล้ว ✅','success'); }); }
+function toggleSelectAll(checked){ document.querySelectorAll('.tpl-chk').forEach(function(c){ c.checked=checked; }); onTplChkChange(); }
+function onTplChkChange(){
+  var checked=document.querySelectorAll('.tpl-chk:checked').length;
+  var btn=document.getElementById('btn-delete-selected');
+  if(btn) btn.style.display=checked>0?'inline-flex':'none';
+}
+function deleteSelected(){
+  var ids=[]; document.querySelectorAll('.tpl-chk:checked').forEach(function(c){ ids.push(c.value); });
+  if(!ids.length)return;
+  if(!confirm('ลบ '+ids.length+' รายการ?'))return;
+  google.script.run.withSuccessHandler(function(res){
+    toast('ลบแล้ว '+ids.length+' รายการ','success'); loadTemplates();
+  }).deleteTemplates(ids,_currentUser&&_currentUser.username,_isAdmin);
+}
+function deleteTpl(tid){
+  if(!confirm('ลบเทมเพลตนี้?'))return;
+  google.script.run.withSuccessHandler(function(res){
+    if(res&&res.success){ toast('ลบแล้ว ✅','success'); loadTemplates(); }
+    else toast((res&&res.error)||'เกิดข้อผิดพลาด','error');
+  }).deleteTemplate(tid,_currentUser&&_currentUser.username,_isAdmin);
+}
+function editTpl(tid){
+  toast('กำลังโหลด...');
+  google.script.run.withSuccessHandler(function(res){
+    if(!res||!res.success){ toast('โหลดไม่ได้: '+(res&&res.error),'error'); return; }
+    questions=res.questions.map(function(q){ return Object.assign({},q,{id:++qIdSeq}); });
+    document.getElementById('quiz-title').value=res.title||'';
+    _editingTemplateId=tid; renderQuestions();
+    showTab('editor',document.getElementById('navbtn-editor'));
+    document.getElementById('edit-banner').style.display='flex';
+    var sb=document.getElementById('save-btn');
+    sb.textContent='💾 บันทึกการแก้ไข';
+    sb.onclick=saveEditedTpl;
+
+    // ── โหลดรูปปก (แก้ปัญหาที่ 1) ──
+    resetCoverUI();
+    if(res.coverImageUrl){
+      var prev=document.getElementById('cover-preview-img');
+      prev.src=res.coverImageUrl;
+      prev.style.display='block';
+      prev.style.objectFit='cover';
+      prev.style.width='100%';
+      prev.style.height='100%';
+      prev.style.position='absolute';
+      prev.style.inset='0';
+      document.getElementById('cover-overlay').style.display='flex';
+      document.getElementById('cover-placeholder').style.display='none';
+      document.getElementById('cover-upload-area').classList.add('has-image');
+      _coverBase64=null; _coverMime=null;
+      _coverFileUrl=res.coverImageUrl;
+    }
+    // ─────────────────────────────────
+
+    toast('โหลดสำเร็จ — แก้ไขได้เลย','success');
+  }).getQuestionsForTemplate(tid);
+}
+function saveEditedTpl(){
+  if(!_editingTemplateId){ toast('ไม่พบ template','error'); return; }
+  var title=document.getElementById('quiz-title').value.trim();
+  if(!title){ toast('กรุณากรอกชื่อ','error'); return; }
+  var btn=document.getElementById('save-btn');
+  btn.disabled=true;
+  btn.onclick=null;
+  btn.textContent='⏳ กำลังบันทึก...';
+  var clean=questions.map(function(q){ return{type:q.type||'mc',questionText:String(q.questionText||''),choices:(q.choices||[]).map(function(c){ return String(c||''); }),correctAnswer:q.correctAnswer!==undefined?q.correctAnswer:null}; });
+  var payload=JSON.stringify({templateId:_editingTemplateId,title:title,questions:clean,username:(_currentUser&&_currentUser.username)||'',isAdmin:_isAdmin});
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(res&&res.success){
+        // ล็อคปุ่มไว้ก่อน ยังไม่คืนค่า — รอ popup ปิดแล้วค่อย reset
+        var shareUrl=res.shareUrl||'';
+        document.getElementById('edit-banner').style.display='none';
+        // อัพโหลดรูปใหม่ถ้ามี (มีการเปลี่ยนรูป)
+        if(_coverBase64&&_coverMime){
+          btn.textContent='⏳ กำลังอัพโหลดรูป...';
+          google.script.run
+            .withSuccessHandler(function(){ showEditSharePopup(shareUrl,btn); })
+            .withFailureHandler(function(){  showEditSharePopup(shareUrl,btn); })
+            .uploadCoverImage(_coverBase64,_coverMime,_editingTemplateId);
+        } else {
+          showEditSharePopup(shareUrl,btn);
+        }
+      } else {
+        btn.disabled=false; btn.onclick=saveEditedTpl; btn.textContent='💾 บันทึกการแก้ไข';
+        toast('เกิดข้อผิดพลาด: '+(res&&res.error),'error');
+      }
+    })
+    .withFailureHandler(function(err){
+      btn.disabled=false; btn.onclick=saveEditedTpl; btn.textContent='💾 บันทึกการแก้ไข';
+      toast((err&&err.message)||'เกิดข้อผิดพลาด','error');
+    })
+    .updateQuestions(payload);
+}
+
+function showEditSharePopup(shareUrl, btn){
+  var tid=_editingTemplateId;
+  _editingTemplateId=null;
+  var ov=document.createElement('div');
+  ov.id='share-overlay';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(10,15,30,.7);backdrop-filter:blur(4px);z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.innerHTML=
+    '<div style="background:#fff;border-radius:20px;padding:36px 30px;max-width:460px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,.3);">'+
+    '<div style="text-align:center;margin-bottom:22px;"><div style="font-size:48px;margin-bottom:10px;">✅</div>'+
+    '<div style="font-size:17px;font-weight:800;">บันทึกการแก้ไขสำเร็จ!</div>'+
+    '<div style="font-size:12px;color:var(--text3);margin-top:4px;">คัดลอกลิงก์หรือสแกน QR ให้นักเรียน</div></div>'+
+    '<div style="background:var(--blue-l);border:1.5px solid #c7d2fe;border-radius:10px;padding:14px;margin-bottom:14px;">'+
+    '<div style="font-size:11px;font-weight:700;color:var(--blue);margin-bottom:8px;">🔗 ลิงก์สำหรับนักเรียน:</div>'+
+    '<input id="edit-popup-url" type="text" readonly value="'+esc(shareUrl)+'" style="width:100%;background:#fff;border:1.5px solid #c7d2fe;border-radius:7px;padding:9px 12px;font-size:12px;outline:none;">'+
+    '</div>'+
+    '<div id="edit-popup-qr" style="display:flex;justify-content:center;margin-bottom:16px;"></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">'+
+    '<button onclick="copyEditPopupLink()" class="btn btn-primary btn-sm" style="flex:1;">📋 คัดลอก</button>'+
+    '<button onclick="showQRFor(\''+esc(shareUrl)+'\')" class="btn btn-qr btn-sm" style="flex:1;">🔲 QR ใหญ่</button>'+
+    '<button onclick="closeEditSharePopup()" class="btn btn-success btn-sm" style="flex:1;">✅ ตกลง</button>'+
+    '</div></div>';
+  document.body.appendChild(ov);
+  try{
+    var qDiv=document.createElement('div');
+    document.getElementById('edit-popup-qr').appendChild(qDiv);
+    new QRCode(qDiv,{text:shareUrl,width:100,height:100,colorDark:'#0a0f1e',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  }catch(e){}
+  // reset ปุ่มหลัง popup โผล่
+  if(btn){ btn.disabled=false; btn.textContent='💾 บันทึกและสร้างลิงก์'; btn.onclick=saveQuiz; }
+  toast('บันทึกการแก้ไขสำเร็จ ✅','success');
+}
+
+function copyEditPopupLink(){
+  var u=document.getElementById('edit-popup-url').value;
+  navigator.clipboard.writeText(u).then(function(){ toast('คัดลอกลิงก์แล้ว ✅','success'); });
+}
+
+function closeEditSharePopup(){
+  var ov=document.getElementById('share-overlay'); if(ov)ov.remove();
+  questions=[]; qIdSeq=0; _lastSavedCount=0; _lastSavedTitle='';
+  document.getElementById('quiz-title').value='';
+  document.getElementById('edit-banner').style.display='none';
+  var sb=document.getElementById('save-btn'); sb.textContent='💾 บันทึกและสร้างลิงก์'; sb.onclick=saveQuiz; sb.disabled=false;
+  resetCoverUI(); renderQuestions(); addQuestion();
+  toast('พร้อมสร้างแบบทดสอบใหม่ ✅','success');
+}
+
+function showSummaryModal(tid){
+  showTab('summary', document.getElementById('navbtn-summary'));
+  document.getElementById('sum-select').value=tid;
+  loadSummaryFor(tid);
+}
+
+/* ══════════════════════════════════════════════════════
+   SUMMARY
+══════════════════════════════════════════════════════ */
+var _charts = {};
+function destroyCharts(){ Object.keys(_charts).forEach(function(k){ try{_charts[k].destroy();}catch(e){} }); _charts={}; }
+
+function refreshSumSelect(){
+  google.script.run.withSuccessHandler(function(res){
+    var sel=document.getElementById('sum-select'), cur=sel.value;
+    sel.innerHTML='<option value="">— เลือกแบบทดสอบ —</option>';
+    (res&&res.templates||[]).forEach(function(t){
+      var o=document.createElement('option'); o.value=t.templateId; o.textContent=t.title;
+      sel.appendChild(o);
+    });
+    if(cur) sel.value=cur;
+  }).getTemplates(_currentUser&&_currentUser.username,_isAdmin);
+}
+
+function loadSummaryFor(tid){
+  if(!tid){ document.getElementById('summary-body').innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">เลือกเทมเพลตด้านบนเพื่อดูผลสรุป</div></div>'; return; }
+  document.getElementById('summary-body').innerHTML='<div class="loading"><span class="spinner"></span>กำลังโหลด...</div>';
+  destroyCharts();
+  google.script.run.withSuccessHandler(function(res){
+    if(!res||!res.success){ document.getElementById('summary-body').innerHTML='<p style="color:var(--rose);">'+esc((res&&res.error)||'เกิดข้อผิดพลาด')+'</p>'; return; }
+    renderSummary(res,tid);
+  }).getTemplateSummary(tid);
+}
+
+function renderSummary(d,tid){
+  var diff=d.post.avgPercent-d.pre.avgPercent, diffClass=diff>0?'diff-up':diff<0?'diff-dn':'diff-up', diffVal=diff>0?'▲+'+diff+'%':diff<0?'▼'+diff+'%':'→ 0%', diffColor=diff>0?'up':diff<0?'dn':'same';
+  var html=
+    '<div class="section-header"><h2>📊 '+esc(d.title)+'</h2>' +
+    '<div class="row-flex">' +
+    '<a href="'+esc(d.sheetUrl)+'" target="_blank" class="btn btn-ghost btn-sm">📊 Sheet</a>' +
+    '<button class="btn btn-excel btn-sm" onclick="exportExcel(\''+tid+'\')">⬇️ Excel</button>' +
+    '<button class="btn btn-qr btn-sm" onclick="showQRFor(\''+esc(d.shareUrl)+'\')">🔲 QR</button>' +
+    '</div></div>' +
+    '<div class="stat-grid">' +
+    '<div class="stat-card pre"><div class="stat-lbl">Pre-test</div><div class="stat-val pre">'+d.pre.avgPercent+'%</div><div style="font-size:11px;color:var(--text3);margin-top:4px;">'+d.pre.count+' คน</div></div>' +
+    '<div class="stat-card post"><div class="stat-lbl">Post-test</div><div class="stat-val post">'+d.post.avgPercent+'%</div><div style="font-size:11px;color:var(--text3);margin-top:4px;">'+d.post.count+' คน</div></div>' +
+    '<div class="stat-card '+diffClass+'"><div class="stat-lbl">พัฒนาการ</div><div class="stat-val '+diffColor+'">'+diffVal+'</div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-title">กราฟเปรียบเทียบ</div><div class="chart-wrap"><canvas id="chart-main"></canvas></div></div>' +
+    '<div class="card"><div class="card-title">คำถามที่ตอบผิดมากสุด</div>' +
+    '<table class="rtable"><thead><tr><th>#</th><th>คำถาม</th><th>Pre ผิด</th><th>Post ผิด</th></tr></thead><tbody id="q-stats-body"></tbody></table></div>' +
+    '<div class="card"><div class="card-title">รายชื่อผู้เข้าสอบ</div>' +
+    '<table class="rtable"><thead><tr><th>ชื่อ</th><th>เบอร์</th><th>ประเภท</th><th>คะแนน</th><th>%</th></tr></thead><tbody id="resp-body"></tbody></table></div>';
+  document.getElementById('summary-body').innerHTML=html;
+
+  // chart
+  var preArr=d.questionStats.map(function(q){ return q.preWrongPct; });
+  var postArr=d.questionStats.map(function(q){ return q.postWrongPct; });
+  var labels=d.questionStats.map(function(q){ return 'Q'+q.index; });
+  var ctx=document.getElementById('chart-main').getContext('2d');
+  _charts['main']=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:'Pre ผิด %',data:preArr,backgroundColor:'rgba(35,82,216,.6)',borderRadius:4},{label:'Post ผิด %',data:postArr,backgroundColor:'rgba(13,148,136,.6)',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:true,max:100}}}});
+
+  // q-stats
+  var qBody=document.getElementById('q-stats-body');
+  d.questionStats.forEach(function(q){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+q.index+'</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(q.questionText)+'</td>' +
+      '<td><span class="pill pill-pre">'+q.preWrongPct+'%</span></td>' +
+      '<td><span class="pill pill-post">'+q.postWrongPct+'%</span></td>';
+    qBody.appendChild(tr);
+  });
+
+  // resp list
+  var rBody=document.getElementById('resp-body');
+  var allResp=[].concat(d.pre.rows.map(function(r){ return Object.assign({},r,{type:'pre'}); }), d.post.rows.map(function(r){ return Object.assign({},r,{type:'post'}); }));
+  allResp.forEach(function(r){
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td>'+esc(r.name)+'</td><td>'+esc(r.phone)+'</td>' +
+      '<td><span class="pill '+(r.type==='pre'?'pill-pre':'pill-post')+'">'+r.type+'</span></td>' +
+      '<td>'+r.score+'/'+r.total+'</td><td>'+r.percent+'%</td>';
+    rBody.appendChild(tr);
+  });
+}
+
+function exportExcel(tid){
+  toast('กำลังสร้างไฟล์...');
+  google.script.run.withSuccessHandler(function(res){
+    if(!res||!res.success){ toast('เกิดข้อผิดพลาด','error'); return; }
+    var rows=res.rows; var title=res.title||'scores';
+    var csv='ชื่อ,เบอร์,ประเภท,คะแนน,เต็ม,%,เวลา\n';
+    rows.forEach(function(r){ csv+='"'+r.name+'","'+r.phone+'","'+r.testType+'",'+r.score+','+r.total+','+r.percent+',"'+r.timestamp+'"\n'; });
+    var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=title+'_scores.csv'; a.click();
+    toast('ดาวน์โหลดแล้ว ✅','success');
+  }).getScoresForExport(tid);
+}
+</script>
+
+<? } else if (page === 'student') { ?>
+<!-- ═══════════════════════════════════════════════════════
+     STUDENT PAGE
+═══════════════════════════════════════════════════════ -->
+<script>
+  var TEMPLATE_ID = '<?= templateId ?>';
+  var QUIZ_TITLE  = '<?= quizTitle ?>';
+</script>
+<style>
+  body { background: var(--surface); }
+  .stu-wrap { max-width: 680px; margin: 0 auto; padding: 24px 16px 80px; position: relative; z-index: 1; }
+  .stu-header {
+    background: var(--ink);
+    padding: 18px 24px;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+  }
+  .stu-header::after {
+    content:''; position:absolute; bottom:0; left:0; right:0; height:1px;
+    background: linear-gradient(90deg,transparent,rgba(35,82,216,.6),rgba(13,148,136,.4),transparent);
+  }
+  .stu-title { color:#fff; font-size:15px; font-weight:700; }
+  .stu-sub   { color:rgba(255,255,255,.5); font-size:12px; }
+</style>
+
+<div class="stu-header">
+  <div class="stu-title">📋 <?= quizTitle ?></div>
+  <div class="stu-sub">แบบทดสอบออนไลน์</div>
+</div>
+
+<div class="stu-wrap">
+  <div id="step-type" class="step active">
+    <div class="card" style="text-align:center;padding:28px 24px 20px;">
+      <div style="font-size:36px;margin-bottom:8px;">📝</div>
+      <div style="font-size:19px;font-weight:800;margin-bottom:6px;"><?= quizTitle ?></div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:24px;">เลือกประเภทการสอบ</div>
+    </div>
+    <div class="type-grid">
+      <div class="type-card" id="card-pre" onclick="selectType('pre')">
+        <div class="type-icon">🎯</div>
+        <div class="type-lbl">Pre-test</div>
+        <div class="type-desc">ทำก่อนเรียน<br>วัดความรู้เดิม</div>
+        <div class="pill-big pill-big-pre">ก่อนเรียน</div>
+      </div>
+      <div class="type-card" id="card-post" onclick="selectType('post')">
+        <div class="type-icon">🏆</div>
+        <div class="type-lbl">Post-test</div>
+        <div class="type-desc">ทำหลังเรียน<br>วัดความก้าวหน้า</div>
+        <div class="pill-big pill-big-post">หลังเรียน</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="width:100%;padding:13px;" id="btn-next-type" onclick="goToInfo()" disabled>ถัดไป →</button>
+  </div>
+
+  <div id="step-info" class="step">
+    <div class="card">
+      <div class="card-title">ข้อมูลผู้สอบ</div>
+      <div id="info-err" class="auth-err"></div>
+      <div class="form-group">
+        <label>ชื่อ-นามสกุล *</label>
+        <div class="input-wrap">
+          <span class="input-icon">🪪</span>
+          <input type="text" id="stu-name" placeholder="ชื่อจริง นามสกุล" style="padding-left:38px;">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>เบอร์โทรศัพท์ *</label>
+        <div class="input-wrap">
+          <span class="input-icon">📱</span>
+          <input type="text" id="stu-phone" placeholder="0812345678" maxlength="10" style="padding-left:38px;">
+        </div>
+      </div>
+      <div class="row-flex" style="margin-top:8px;">
+        <button class="btn btn-ghost" onclick="goStep('step-type')">← กลับ</button>
+        <button class="btn btn-primary" style="flex:1;" onclick="startQuiz()">เริ่มทำแบบทดสอบ →</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="step-quiz" class="step">
+    <div class="quiz-prog-bar"><div class="quiz-prog-fill" id="prog-fill" style="width:0%"></div></div>
+    <div id="quiz-header" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:13px;color:var(--text2);" id="prog-text"></div>
+      <div id="test-type-badge"></div>
+    </div>
+    <div id="quiz-body"></div>
+    <div style="text-align:center;padding:16px 0;">
+      <button class="btn btn-primary" style="padding:12px 32px;" id="btn-submit" onclick="submitQuiz()">📤 ส่งคำตอบ</button>
+    </div>
+  </div>
+
+  <div id="step-result" class="step">
+    <div class="card">
+      <div class="result-box" id="result-box"></div>
+      <div style="text-align:center;padding-bottom:16px;">
+        <button class="btn btn-ghost" onclick="location.reload()">🔄 ทำใหม่</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+var _tt;
+function toast(msg,type){ type=type||''; var el=document.getElementById('toast'); el.textContent=msg; el.className='show'+(type?' '+type:''); clearTimeout(_tt); _tt=setTimeout(function(){el.className='';},2800); }
+
+var _testType='', _name='', _phone='', _questions=[], _answers=[], _coverUrl='';
+
+function selectType(t){
+  _testType=t;
+  document.getElementById('card-pre').classList.toggle('sel-pre',t==='pre');
+  document.getElementById('card-pre').classList.toggle('sel-post',false);
+  document.getElementById('card-post').classList.toggle('sel-post',t==='post');
+  document.getElementById('card-post').classList.toggle('sel-pre',false);
+  document.getElementById('btn-next-type').disabled=false;
+}
+
+function goToInfo(){
+  if(!_testType)return;
+  goStep('step-info');
+}
+
+function startQuiz(){
+  var name=document.getElementById('stu-name').value.trim();
+  var phone=document.getElementById('stu-phone').value.trim();
+  var errEl=document.getElementById('info-err');
+  errEl.style.display='none';
+  if(!name||!phone){ errEl.textContent='กรุณากรอกชื่อและเบอร์โทร'; errEl.style.display='block'; return; }
+  if(!/^0\d{8,9}$/.test(phone)){ errEl.textContent='เบอร์โทรไม่ถูกต้อง'; errEl.style.display='block'; return; }
+  _name=name; _phone=phone;
+  toast('กำลังโหลดคำถาม...');
+  google.script.run
+    .withSuccessHandler(function(res){
+      if(!res||!res.success){ errEl.textContent=(res&&res.error)||'โหลดไม่ได้'; errEl.style.display='block'; return; }
+      _questions=res.questions; _coverUrl=res.coverImageUrl||'';
+      _answers=new Array(_questions.length).fill(null);
+      renderQuiz(); goStep('step-quiz');
+    })
+    .withFailureHandler(function(err){ errEl.textContent=(err&&err.message)||'เกิดข้อผิดพลาด'; errEl.style.display='block'; })
+    .getQuestionsForTemplate(TEMPLATE_ID);
+}
+
+function renderQuiz(){
+  var body=document.getElementById('quiz-body');
+  body.innerHTML='';
+  var badge=document.getElementById('test-type-badge');
+  badge.innerHTML='<span class="pill '+(_testType==='pre'?'pill-pre':'pill-post')+'">'+(_testType==='pre'?'Pre-test':'Post-test')+'</span>';
+  updateProgress();
+  _questions.forEach(function(q,qi){
+    var div=document.createElement('div');
+    div.className='sq-card sq-'+(q.type==='mc'?'mc':q.type==='checkbox'?'chk':q.type==='dropdown'?'drop':'txt');
+    div.id='sq-'+qi;
+    var typeBadge=q.type==='mc'?'MC':q.type==='checkbox'?'☑':q.type==='dropdown'?'▼':'✏️';
+    var headHtml='<div class="sq-head"><div class="sq-num">'+(qi+1)+'</div>' +
+      '<div class="sq-text">'+esc(q.questionText)+'<span class="sq-type-badge">'+typeBadge+'</span></div></div>';
+    var bodyHtml='';
+    if(q.type==='mc'){
+      bodyHtml=q.choices.map(function(ch,ci){
+        var L=String.fromCharCode(65+ci);
+        return '<div class="opt-row" id="opt-'+qi+'-'+ci+'" onclick="pickMC('+qi+','+ci+')">' +
+          '<input type="radio" name="q'+qi+'" value="'+ci+'"><span class="opt-letter">'+L+'</span><span>'+esc(ch)+'</span></div>';
+      }).join('');
+    } else if(q.type==='checkbox'){
+      bodyHtml=q.choices.map(function(ch,ci){
+        return '<div class="chk-row" id="chk-'+qi+'-'+ci+'" onclick="toggleChk('+qi+','+ci+')">' +
+          '<input type="checkbox" id="cb-'+qi+'-'+ci+'"><span class="opt-letter">'+String.fromCharCode(65+ci)+'</span><span>'+esc(ch)+'</span></div>';
+      }).join('');
+    } else if(q.type==='dropdown'){
+      bodyHtml='<select class="s-select" onchange="pickDrop('+qi+',this.value)"><option value="">— เลือก —</option>' +
+        q.choices.map(function(ch,ci){ return '<option value="'+ci+'">'+esc(ch)+'</option>'; }).join('')+'</select>';
+    } else {
+      bodyHtml='<textarea class="s-textarea" placeholder="พิมพ์คำตอบ..." oninput="pickText('+qi+',this.value)"></textarea>';
+    }
+    div.innerHTML=headHtml+bodyHtml;
+    body.appendChild(div);
+  });
+}
+
+function pickMC(qi,ci){
+  _answers[qi]=ci;
+  document.querySelectorAll('[id^="opt-'+qi+'-"]').forEach(function(el){ el.classList.remove('sel'); });
+  var el=document.getElementById('opt-'+qi+'-'+ci); if(el){ el.classList.add('sel'); var inp=el.querySelector('input'); if(inp)inp.checked=true; }
+  document.getElementById('sq-'+qi).classList.add('answered');
+  updateProgress();
+}
+function toggleChk(qi,ci){
+  if(!Array.isArray(_answers[qi]))_answers[qi]=[];
+  var idx=_answers[qi].indexOf(ci);
+  if(idx>-1) _answers[qi].splice(idx,1); else _answers[qi].push(ci);
+  var el=document.getElementById('chk-'+qi+'-'+ci); if(el){ el.classList.toggle('sel',_answers[qi].includes(ci)); var cb=document.getElementById('cb-'+qi+'-'+ci); if(cb)cb.checked=_answers[qi].includes(ci); }
+  document.getElementById('sq-'+qi).classList.toggle('answered',_answers[qi].length>0);
+  updateProgress();
+}
+function pickDrop(qi,val){
+  _answers[qi]=val===''?null:parseInt(val);
+  document.getElementById('sq-'+qi).classList.toggle('answered',val!=='');
+  updateProgress();
+}
+function pickText(qi,val){
+  _answers[qi]=val;
+  document.getElementById('sq-'+qi).classList.toggle('answered',val.trim()!=='');
+  updateProgress();
+}
+
+function updateProgress(){
+  var done=_answers.filter(function(a){ return a!==null&&(typeof a!=='string'||a.trim()!=='')&&(!Array.isArray(a)||a.length>0); }).length;
+  var pct=_questions.length>0?Math.round((done/_questions.length)*100):0;
+  document.getElementById('prog-fill').style.width=pct+'%';
+  document.getElementById('prog-text').textContent=done+'/'+_questions.length+' ข้อที่ตอบแล้ว';
+}
+
+function submitQuiz(){
+  var unanswered=_questions.filter(function(q,i){ if(q.type==='text')return false; return _answers[i]===null||(_answers[i]===undefined)||(_answers[i]===''); });
+  if(unanswered.length>0){
+    if(!confirm('ยังมี '+unanswered.length+' ข้อที่ยังไม่ได้ตอบ ส่งเลยหรือไม่?'))return;
+  }
+  var btn=document.getElementById('btn-submit'); btn.disabled=true; btn.textContent='⏳ กำลังส่ง...';
+  var payload=JSON.stringify({name:_name,phone:_phone,testType:_testType,answers:_answers,templateId:TEMPLATE_ID});
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled=false; btn.textContent='📤 ส่งคำตอบ';
+      if(!res||!res.success){ toast((res&&res.error)||'เกิดข้อผิดพลาด','error'); return; }
+      showResult(res.score,res.total,res.percent);
+      goStep('step-result');
+    })
+    .withFailureHandler(function(err){ btn.disabled=false; btn.textContent='📤 ส่งคำตอบ'; toast((err&&err.message)||'เกิดข้อผิดพลาด','error'); })
+    .submitResponse(payload);
+}
+
+function showResult(score,total,pct){
+  var icon=pct>=80?'🏆':pct>=60?'👍':pct>=40?'📚':'💪';
+  var msg=pct>=80?'ยอดเยี่ยมมาก!':pct>=60?'ทำได้ดี!':pct>=40?'ยังพัฒนาได้อีก':'ไม่เป็นไร ลองอีกครั้ง!';
+  var color=pct>=80?'var(--teal)':pct>=60?'var(--blue)':pct>=40?'var(--amber)':'var(--rose)';
+  document.getElementById('result-box').innerHTML=
+    '<div class="r-icon">'+icon+'</div>' +
+    '<div class="r-pct" style="color:'+color+'">'+pct+'%</div>' +
+    '<div class="r-score">'+score+' / '+total+' คะแนน</div>' +
+    '<div class="r-msg">'+msg+'</div>' +
+    '<div style="background:var(--surface);border-radius:10px;padding:12px 16px;font-size:13px;color:var(--text2);">' +
+    '✅ บันทึกผลสำเร็จ — '+(_testType==='pre'?'Pre-test':'Post-test')+'</div>';
+}
+
+function goStep(id){
+  document.querySelectorAll('.step').forEach(function(s){ s.classList.remove('active'); });
+  document.getElementById(id).classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+</script>
+<? } ?>
+</body>
+</html>
