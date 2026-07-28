@@ -1,0 +1,5439 @@
+<!DOCTYPE html>
+<html lang="lo">
+<head>
+  <!-- Cropper.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css" />
+  
+  <!-- Cropper.js JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+ <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- SheetJS (Excel export) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Chart.js (Summary charts) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <!-- html2pdf.js (ดาวน์โหลด PDF จริง) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- html2canvas + jsPDF (ตัวจริง แยกต่างหาก เพื่อความเสถียรตอนสร้าง PDF หลายหน้า) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>ລະບົບຂໍ້ມູນປະຊາກອນ</title>
+  <link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjoi4bqu4bql4bpa4bqm4bqu4bqi4bqe4bql4bqa4bqi4bqR4bqK4bqe4bqB4bqi4bqK4bqi4bqB4bqi4bqZ4bqU4bqI4bqQ4bqi4bqZ4bqU4bqI4bqQ4bqI4bqI4bqA4bqi4bqL4bqB4bqZ4bqA4bqK4bqi4bqZ4bqU4bqI4bqQIiwic2hvcnRfbmFtZSI6IuC6seC6peC6WuC6puC6ruC6ouC6nuC6peC6muC6ouC6keC6iuC6nuC6geC6ouC6iuC6ouC6geC6ouC6meC6lOC6iOC6kOC6ouC6meC6lOC6iOC6kOC6iOC6iOC6gOC6ouC6i+C6geC6meC6gOC6ouC6meC6lOC6iOC6kCIsInN0YXJ0X3VybCI6Ii4iLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsImJhY2tncm91bmRfY29sb3IiOiIjNjY3ZWVhIiwidGhlbWVfY29sb3IiOiIjNjY3ZWVhIiwiaWNvbnMiOltdfQ==">
+  <meta name="theme-color" content="#667eea">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ຂໍ້ມູນປະຊາກອນ">
+
+  <style>
+    /* ===================================
+       DARK MODE
+    =================================== */
+    [data-theme="dark"] {
+      color-scheme: dark;
+    }
+    [data-theme="dark"] body {
+      background: linear-gradient(135deg, #2c2c4a 0%, #1a1a2e 100%);
+    }
+    [data-theme="dark"] .container,
+    [data-theme="dark"] .modal {
+      background: #1e1e2f;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .modal h2 {
+      color: #a29bfe;
+    }
+    [data-theme="dark"] .form-group label {
+      color: #d0d0d0;
+    }
+    [data-theme="dark"] .form-group input,
+    [data-theme="dark"] .form-group select,
+    [data-theme="dark"] textarea,
+    [data-theme="dark"] input[type="text"],
+    [data-theme="dark"] input[type="number"],
+    [data-theme="dark"] input[type="password"],
+    [data-theme="dark"] input[type="date"],
+    [data-theme="dark"] input[type="tel"] {
+      background: #2a2a3f !important;
+      color: #e0e0e0 !important;
+      border-color: #444 !important;
+    }
+    [data-theme="dark"] .form-section {
+      background: #262638 !important;
+      border-color: #444 !important;
+    }
+    [data-theme="dark"] .form-section.household-main-section {
+      background: linear-gradient(135deg, #1f3325 0%, #33301a 50%, #332619 100%) !important;
+      border-color: #4caf50 !important;
+    }
+    [data-theme="dark"] .form-section.member-section {
+      background: #262638 !important;
+    }
+    [data-theme="dark"] .data-table {
+      background: #1e1e2f;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .data-table td {
+      border-bottom-color: #3a3a4f;
+    }
+    [data-theme="dark"] .data-table tr:hover {
+      background: #2a2a40;
+    }
+    [data-theme="dark"] .search-bar input,
+    [data-theme="dark"] .population-toolbar select {
+      background: #2a2a3f;
+      color: #e0e0e0;
+      border-color: #444;
+    }
+    [data-theme="dark"] .btn-secondary {
+      background: #3a3a4f;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .btn-secondary:hover {
+      background: #4a4a5f;
+    }
+    [data-theme="dark"] .pagination .page-info {
+      background: #2a2a3f;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .summary-table th, 
+    [data-theme="dark"] .summary-table td {
+      border-color: #3a3a4f;
+    }
+    [data-theme="dark"] .summary-content,
+    [data-theme="dark"] .summary-household-block {
+      background: #1e1e2f;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .summary-chart-box,
+    [data-theme="dark"] .filter-field-row {
+      background: #262638;
+      border-color: #444;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .household-card {
+      background: #262638;
+      border-color: #444;
+      color: #e0e0e0;
+    }
+    [data-theme="dark"] .photo-preview {
+      background: #2a2a3f;
+    }
+    /* ===== ปุ่มสลับ Dark/Light ===== */
+    .theme-toggle-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.4);
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.3s;
+    }
+    .theme-toggle-btn:hover {
+      background: rgba(255,255,255,0.3);
+      transform: scale(1.1);
+    }
+    .searchable-select-wrap { position: relative; }
+    .searchable-dropdown-list {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      max-height: 220px;
+      overflow-y: auto;
+      background: white;
+      border: 2px solid #667eea;
+      border-radius: 8px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+      z-index: 2000;
+      margin-top: 4px;
+    }
+    .searchable-dropdown-list.active { display: block; }
+    .searchable-dropdown-item {
+      padding: 10px 15px;
+      cursor: pointer;
+      font-size: 15px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .searchable-dropdown-item:hover,
+    .searchable-dropdown-item.highlighted {
+      background: #f0f0ff;
+      color: #667eea;
+    }
+    .searchable-dropdown-empty {
+      padding: 10px 15px;
+      color: #999;
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    .login-step { display: none; }
+#loginStep1 { display: block; }
+
+    /* ===== MOBILE TYPE SELECTION ===== */
+.mobile-type-option > div:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  border-color: #667eea !important;
+}
+
+.mobile-type-option.selected > div {
+  border-color: #667eea !important;
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+}
+
+/* ===== HOUSEHOLD SELECTOR ===== */
+.household-card {
+  padding: 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: white;
+}
+
+.household-card:hover {
+  border-color: #4caf50;
+  background: #f1f8f4;
+  transform: translateX(5px);
+}
+
+.household-card.selected {
+  border-color: #4caf50;
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+  box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+}
+
+.household-card-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.household-card-photo {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #4caf50;
+}
+
+.household-card-photo.placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #e0e0e0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  border: 3px solid #e0e0e0;
+}
+
+.household-card-info h4 {
+  margin: 0 0 5px 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.household-card-info p {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.household-card-details {
+  padding-left: 75px;
+  font-size: 13px;
+  color: #777;
+}
+
+.household-card-details span {
+  display: inline-block;
+  margin-right: 15px;
+}
+
+/* ===== MOBILE MEMBER SECTION ===== */
+.mobile-member-section {
+  background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+  border: 2px solid #667eea;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  position: relative;
+}
+
+.mobile-member-section:nth-child(even) {
+  background: linear-gradient(135deg, #fff9f0 0%, #fff 100%);
+  border-left: 5px solid #ff9800;
+}
+
+.mobile-member-section h3::before {
+  content: attr(data-member-number);
+  position: absolute;
+  left: -15px;
+  top: 15px;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+}
+
+/* ===== RENTAL PERIODS (Dynamic Dates) ===== */
+.rental-periods-container {
+  border: 2px dashed #667eea;
+  border-radius: 10px;
+  padding: 15px;
+  background: #f8f9ff;
+  margin-top: 10px;
+}
+
+.rental-period-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.rental-period-item label {
+  min-width: 80px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.rental-period-item input[type="text"],
+.rental-period-item input[type="number"] {
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.rental-period-item .date-input {
+  flex: 1;
+  max-width: 150px;
+}
+
+.rental-period-item .days-input {
+  width: 100px;
+}
+
+.rental-period-item .end-date-display {
+  flex: 1;
+  padding: 8px 12px;
+  background: #e8f5e9;
+  border: 2px solid #4caf50;
+  border-radius: 5px;
+  font-weight: 600;
+  color: #2e7d32;
+}
+
+.btn-add-period {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+  margin-top: 10px;
+}
+
+.btn-add-period:hover {
+  background: linear-gradient(135deg, #66bb6a 0%, #81c784 100%);
+  transform: translateY(-2px);
+}
+
+.btn-remove-period {
+  padding: 8px 12px;
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.3s;
+}
+
+.btn-remove-period:hover {
+  background: #da190b;
+  transform: scale(1.05);
+}
+
+    .loading-counter {
+  color: white;
+  font-size: 48px;
+  font-weight: bold;
+  margin-top: 20px;
+  font-family: 'Courier New', monospace;
+  text-shadow: 0 0 20px rgba(102, 126, 234, 0.8);
+  animation: counterPulse 1s infinite;
+}
+
+.loading-message {
+  color: white;
+  font-size: 18px;
+  margin-top: 10px;
+  opacity: 0.9;
+}
+
+@keyframes counterPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+    /* สีไล่ลำดับสำหรับฟอร์มสมาชิก */
+.member-section:nth-child(odd) {
+  background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%) !important;
+  border-left: 5px solid #667eea !important;
+}
+
+.member-section:nth-child(even) {
+  background: linear-gradient(135deg, #fff9f0 0%, #fff 100%) !important;
+  border-left: 5px solid #ff9800 !important;
+}
+
+.member-section:nth-child(3n) {
+  background: linear-gradient(135deg, #f0fff4 0%, #fff 100%) !important;
+  border-left: 5px solid #4caf50 !important;
+}
+
+.member-section:nth-child(4n) {
+  background: linear-gradient(135deg, #fff0f5 0%, #fff 100%) !important;
+  border-left: 5px solid #e91e63 !important;
+}
+
+.member-section:nth-child(5n) {
+  background: linear-gradient(135deg, #f0f8ff 0%, #fff 100%) !important;
+  border-left: 5px solid #2196f3 !important;
+}
+
+/* เพิ่มเงาให้ชัดเจนขึ้น */
+.member-section {
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1) !important;
+  transition: all 0.3s ease !important;
+  position: relative;
+  padding-left: 25px !important;
+}
+
+.member-section:hover {
+  box-shadow: 0 5px 20px rgba(0,0,0,0.15) !important;
+  transform: translateX(5px);
+}
+
+/* หมายเลขฟอร์ม */
+.member-section h3::before {
+  content: attr(data-member-number);
+  position: absolute;
+  left: -15px;
+  top: 15px;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: bold;
+  box-shadow: 0 3px 10px rgba(102, 126, 234, 0.4);
+  z-index: 10;
+}
+
+.member-section:nth-child(even) h3::before {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+}
+
+.member-section:nth-child(3n) h3::before {
+  background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+}
+
+.member-section:nth-child(4n) h3::before {
+  background: linear-gradient(135deg, #e91e63 0%, #c2185b 100%);
+}
+
+.member-section:nth-child(5n) h3::before {
+  background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+}
+/* Animation สำหรับ Disease Tags */
+/* แก้ไขขนาดช่องวันที่ให้ใหญ่ขึ้น (ปัญหาข้อ 2 และ 3) */
+input[type="date"] {
+  min-width: 200px !important;
+  width: 100% !important;
+  padding: 12px !important;
+  font-size: 16px !important;
+}
+
+.member-section input[type="date"] {
+  min-width: 220px !important;
+  width: 100% !important;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+    /* Validation Styles */
+.required-field {
+  position: relative;
+}
+
+.required-field.invalid {
+  border-color: #f44336 !important;
+  animation: shake 0.5s, blink 1s infinite;
+  background: #ffebee !important;
+}
+
+@keyframes blink {
+  0%, 100% { 
+    box-shadow: 0 0 10px rgba(244, 67, 54, 0.5);
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(244, 67, 54, 0.8);
+  }
+}
+
+.validation-error-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 15px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  z-index: 10001;
+  animation: popupAppear 0.3s ease-out;
+}
+
+@keyframes popupAppear {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.validation-error-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #f44336;
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.validation-error-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
+.validation-error-item {
+  padding: 10px;
+  background: #ffebee;
+  border-left: 4px solid #f44336;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+    /* Hide photo upload by default for new members */
+.member-section .photo-upload-wrapper {
+  display: none;
+  opacity: 0;
+  transition: all 0.5s ease;
+  margin-bottom: 20px;
+}
+
+.member-section .photo-upload-wrapper.show {
+  display: block;
+  opacity: 1;
+  animation: slideDown 0.5s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Photo upload notice */
+.photo-upload-notice {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  border: 2px solid #ffc107;
+  border-radius: 10px;
+  padding: 15px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #856404;
+  box-shadow: 0 3px 10px rgba(255, 193, 7, 0.2);
+}
+
+.photo-upload-notice.hidden {
+  display: none;
+}
+
+.photo-upload-notice .icon {
+  font-size: 28px;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+    /* Beautiful custom marker styling */
+.custom-beautiful-marker {
+  z-index: 1000 !important;
+}
+
+.custom-map-marker {
+  animation: markerBounce 0.5s ease-out;
+  filter: drop-shadow(0 4px 8px rgba(244, 67, 54, 0.4));
+  transition: all 0.3s ease;
+}
+
+.custom-map-marker:hover {
+  filter: drop-shadow(0 6px 12px rgba(244, 67, 54, 0.6));
+  transform: scale(1.1);
+}
+
+@keyframes markerBounce {
+  0% {
+    transform: translateY(-30px) scale(0.8);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(5px) scale(1.1);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+/* Pulse animation for marker */
+.custom-beautiful-marker .custom-map-marker {
+  position: relative;
+}
+
+.custom-beautiful-marker .custom-map-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  background: rgba(244, 67, 54, 0.3);
+  animation: markerPulse 2s infinite;
+}
+
+@keyframes markerPulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Marker drag state */
+.leaflet-marker-draggable {
+  cursor: move !important;
+}
+
+.leaflet-marker-draggable:active {
+  cursor: grabbing !important;
+}
+    /* Disable interaction for auto-calculated fields */
+#registryBookCount,
+#registryNumber {
+  pointer-events: none;
+  user-select: none;
+  cursor: not-allowed;
+}
+
+/* Make it visually clear these are auto-calculated */
+#registryBookCount:focus,
+#registryNumber:focus {
+  outline: none;
+  border-color: inherit;
+  box-shadow: none;
+}
+/* Enhanced Registry Number Item Styling */
+.registry-number-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 15px;
+  background: #f8f9ff;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  flex-wrap: wrap;
+}
+
+.registry-number-item label {
+  min-width: 80px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.registry-input-group {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 500px;
+}
+
+.registry-input-group .number-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 10px;
+  font-size: 16px;
+}
+
+.registry-number-item label {
+  min-width: 70px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.registry-input-group {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+  align-items: center;
+}
+
+.registry-input-group .number-input {
+  flex: 1;
+  max-width: 200px;
+}
+
+.registry-input-group .date-inputs {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.registry-input-group .date-inputs input {
+  width: 80px;
+  min-width: 80px;
+  text-align: center;
+  padding: 8px;
+  font-size: 16px;
+}
+
+.registry-input-group .date-inputs input:last-child {
+  width: 100px;
+  min-width: 100px;
+}
+
+.registry-input-group .date-inputs span {
+  color: #666;
+  font-size: 14px;
+}
+    /* Participation Option Styling */
+.participation-option > div:hover {
+  border-color: #667eea !important;
+  background: #f8f9ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.participation-option.selected > div {
+  border-color: #667eea !important;
+  background: #f0f0ff;
+  box-shadow: 0 4px 10px rgba(102, 126, 234, 0.3);
+}
+
+.participation-option input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+/* Participation Display Styling */
+#participationDisplay {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+#participationDisplay.excellent {
+  background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%) !important;
+  color: #1b5e20;
+  border: 2px solid #4caf50;
+}
+
+#participationDisplay.verygood {
+  background: linear-gradient(135deg, #f1f8e9 0%, #dcedc8 100%) !important;
+  color: #33691e;
+  border: 2px solid #689f38;
+}
+
+#participationDisplay.moderate {
+  background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%) !important;
+  color: #f57f17;
+  border: 2px solid #ffc107;
+}
+
+#participationDisplay.lacking {
+  background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%) !important;
+  color: #b71c1c;
+  border: 2px solid #f44336;
+}
+    /* Beautiful marker */
+.beautiful-marker {
+  z-index: 1000 !important;
+  animation: markerPulse 2s ease-out infinite;
+}
+
+@keyframes markerPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* My location button special style */
+#btnMyLocation {
+  background: linear-gradient(135deg, #4285F4 0%, #1976D2 100%);
+  color: white;
+}
+
+#btnMyLocation:hover {
+  background: linear-gradient(135deg, #1976D2 0%, #0D47A1 100%);
+}
+
+#btnMyLocation.active {
+  background: linear-gradient(135deg, #4285F4 0%, #1976D2 100%);
+}
+    /* Large marker styling */
+.custom-marker-large {
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+  cursor: move;
+  z-index: 1000 !important;
+}
+
+.custom-marker-large:hover {
+  filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.7));
+}
+
+/* Ensure marker is on top */
+.leaflet-marker-pane {
+  z-index: 700 !important;
+}
+
+.leaflet-marker-icon {
+  z-index: 1000 !important;
+}
+/* Custom marker animation */
+.custom-marker {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.registry-modal {
+  max-width: 900px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.registry-option {
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 15px;
+  margin-bottom: 15px;
+  transition: all 0.3s;
+}
+
+.registry-option.selected {
+  border-color: #4caf50;
+  background: #f1f8f4;
+}
+
+.registry-option-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.registry-option-header input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.registry-option-header label {
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 1;
+}
+
+.registry-details {
+  display: none;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.registry-details.active {
+  display: block;
+}
+
+.registry-count-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.registry-count-input label {
+  font-weight: 600;
+  min-width: 80px;
+}
+
+.registry-count-input input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 5px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.registry-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.registry-number-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.registry-number-item label {
+  min-width: 60px;
+  font-weight: 500;
+}
+
+.registry-number-item input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.registry-summary {
+  background: #e3f2fd;
+  border: 2px solid #2196F3;
+  border-radius: 10px;
+  padding: 15px;
+  margin-top: 20px;
+}
+
+.registry-summary h4 {
+  color: #1565c0;
+  margin-bottom: 10px;
+}
+
+.registry-summary-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid #90caf9;
+}
+
+.registry-summary-item:last-child {
+  border-bottom: none;
+  font-weight: 600;
+  color: #1565c0;
+}
+/* ===== MAP LAYER SWITCHER ===== */
+.map-layer-switcher {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  overflow: hidden;
+  display: flex;
+}
+
+.map-layer-btn {
+  padding: 10px 20px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+  border-right: 1px solid #e0e0e0;
+}
+
+.map-layer-btn:last-child {
+  border-right: none;
+}
+
+.map-layer-btn.active {
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: white;
+}
+
+.map-layer-btn:hover {
+  background: #f0f0f0;
+}
+
+.map-layer-btn.active:hover {
+  background: linear-gradient(135deg, #66bb6a 0%, #81c784 100%);
+}
+    /* ===== IMAGE CROP MODAL ===== */
+.crop-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.95);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 10002;
+}
+
+.crop-modal.active {
+  display: flex;
+}
+
+.crop-modal-content {
+  background: white;
+  border-radius: 15px;
+  padding: 20px;
+  max-width: 95%;
+  max-height: 95%;
+  width: 1200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.crop-modal h2 {
+  margin-bottom: 15px;
+  color: #667eea;
+  text-align: center;
+}
+
+.crop-container {
+  flex: 1;
+  max-height: 500px;
+  margin-bottom: 15px;
+  background: #f5f5f5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.crop-container img {
+  max-width: 100%;
+  display: block;
+}
+
+.crop-tools {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+.crop-tool-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.crop-tool-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.crop-tool-btn:active {
+  transform: translateY(0);
+}
+
+.crop-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.crop-buttons button {
+  flex: 1;
+}
+
+.aspect-ratio-selector {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.aspect-btn {
+  padding: 8px 15px;
+  background: #e0e0e0;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.aspect-btn.active {
+  background: #667eea;
+  color: white;
+  border-color: #764ba2;
+}
+
+.aspect-btn:hover {
+  background: #d0d0d0;
+}
+
+.aspect-btn.active:hover {
+  background: #5568d3;
+}
+    /* ===== LOCATION PICKER BUTTON ===== */
+.btn-location {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 2px 5px rgba(76, 175, 80, 0.3);
+}
+
+.btn-location:hover {
+  background: linear-gradient(135deg, #66bb6a 0%, #81c784 100%);
+  transform: scale(1.1);
+  box-shadow: 0 4px 10px rgba(76, 175, 80, 0.5);
+}
+
+/* ===== LOCATION PICKER MODAL ===== */
+.location-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 10001;
+}
+
+.location-modal.active {
+  display: flex;
+}
+
+.location-modal-content {
+  background: white;
+  border-radius: 15px;
+  padding: 20px;
+  max-width: 90%;
+  max-height: 90%;
+  width: 800px;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+}
+
+.location-modal h2 {
+  margin-bottom: 15px;
+  color: #4caf50;
+}
+
+#map {
+  flex: 1;
+  border-radius: 10px;
+  margin-bottom: 15px;
+}
+
+.location-info {
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  font-family: monospace;
+}
+
+.location-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.location-buttons button {
+  flex: 1;
+}
+/* ===== FIX MAP DISPLAY ===== */
+#map {
+  width: 100%;
+  height: 400px;
+  z-index: 1;
+}
+
+.location-modal-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.location-buttons button {
+  padding: 12px 24px;
+}
+
+/* Fix for Leaflet controls */
+.leaflet-control-layers,
+.leaflet-control-zoom {
+  margin: 10px !important;
+}
+
+.leaflet-container {
+  font-size: 14px;
+  font-family: 'Phetsarath OT', 'Noto Sans Lao', Arial, sans-serif;
+}
+
+.gps-search-label {
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%) !important;
+  color: white !important;
+  border: none !important;
+  font-weight: 700;
+  padding: 5px 12px !important;
+  border-radius: 20px !important;
+  font-size: 13px !important;
+  box-shadow: 0 3px 10px rgba(76,175,80,0.4);
+}
+.gps-search-label::before {
+  border-top-color: #4caf50 !important;
+}
+    /* ===== MEMBER HIGHLIGHT ===== */
+.member-editing {
+  background: linear-gradient(135deg, #fff3cd 0%, #fff8e1 100%);
+  border: 3px solid #ffc107;
+  animation: highlightPulse 1.5s infinite;
+  scroll-margin-top: 100px;
+}
+
+@keyframes highlightPulse {
+  0%, 100% { 
+    box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7);
+  }
+  50% { 
+    box-shadow: 0 0 0 10px rgba(255, 193, 7, 0);
+  }
+}
+
+/* ===== HOUSEHOLD SECTION STYLING ===== */
+.form-section.household-section {
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border: 3px solid #667eea;
+}
+
+.form-section.member-section {
+  background: #f8f9ff;
+  border: 2px solid #e0e0e0;
+}
+
+/* ===== IMAGE PREVIEW MODAL ===== */
+.image-preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+  cursor: zoom-out;
+}
+
+.image-preview-modal.active {
+  display: flex;
+}
+
+.image-preview-modal img {
+  max-width: 90%;
+  max-height: 90%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+}
+
+/* ===== PROFILE IMAGE CLICKABLE ===== */
+.profile-img {
+  cursor: pointer;
+  transition: transform 0.3s;
+}
+
+.profile-img:hover {
+  transform: scale(1.1);
+}
+
+/* ===== PAGINATION ===== */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.pagination button {
+  padding: 10px 15px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.3s;
+  min-width: 40px;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: #5568d3;
+  transform: translateY(-2px);
+}
+
+.pagination button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pagination .page-info {
+      padding: 10px 20px;
+      background: #f0f0f0;
+      border-radius: 5px;
+      font-weight: 600;
+    }
+
+    /* ===== UNIT GROUP CARD STYLING ===== */
+    .unit-group-header-row td {
+      padding: 12px 15px !important;
+      font-weight: 700;
+      font-size: 15px;
+      color: white !important;
+      border: none !important;
+    }
+    .population-toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .population-toolbar select {
+      padding: 10px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      cursor: pointer;
+    }
+    .population-unit-filter-wrap {
+      position: relative;
+    }
+.population-unit-filter-btn {
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #9c27b0 0%, #673ab7 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .population-unit-filter-clear-btn {
+      padding: 10px 14px;
+      background: linear-gradient(135deg, #f44336 0%, #e53935 100%);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      margin-left: 6px;
+      transition: all 0.3s;
+    }
+    .population-unit-filter-clear-btn:hover {
+      background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
+      transform: translateY(-2px);
+    }
+    .population-unit-filter-dropdown {
+      display: none;
+      position: absolute;
+      top: 110%;
+      left: 0;
+      background: white;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.25);
+      padding: 10px;
+      z-index: 500;
+      max-height: 280px;
+      overflow-y: auto;
+      min-width: 220px;
+    }
+    .population-unit-filter-dropdown label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 6px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+    }
+/* ===== WHATSAPP BUTTON ===== */
+.btn-whatsapp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: #25D366;
+  color: white;
+  border-radius: 50%;
+  text-decoration: none;
+  transition: all 0.3s;
+  box-shadow: 0 2px 5px rgba(37, 211, 102, 0.3);
+}
+
+.btn-whatsapp:hover {
+  background: #128C7E;
+  transform: scale(1.1);
+  box-shadow: 0 4px 10px rgba(37, 211, 102, 0.5);
+}
+
+.btn-whatsapp svg {
+  width: 24px;
+  height: 24px;
+}
+    /* ===== DATALIST STYLING ===== */
+input[list] {
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%23333" d="M6 9L1 4h10z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 30px;
+  cursor: pointer;
+}
+
+input[list]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  cursor: pointer;
+}
+
+input[list]:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+input[list]::placeholder {
+  color: #999;
+  font-size: 14px;
+}
+
+input[list]:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Phetsarath OT', 'Noto Sans Lao', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      width: 100%;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+      display: none;
+    }
+
+    .container.active {
+      display: block;
+    }
+
+    /* ===== LOGIN MODAL ===== */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 15px;
+      padding: 40px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      overflow-y: auto;
+      transform: scale(0.7);
+      transition: transform 0.3s ease;
+    }
+
+    .modal-overlay.active .modal {
+      transform: scale(1);
+    }
+
+    .modal h2 {
+      text-align: center;
+      color: #667eea;
+      margin-bottom: 30px;
+      font-size: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .form-group input,
+    .form-group select {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #e0e0e0;
+      color: #333;
+      margin-top: 10px;
+    }
+
+    .btn-secondary:hover {
+      background: #d0d0d0;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+
+    .user-name {
+      font-size: 14px;
+    }
+
+    .btn-logout {
+      padding: 8px 20px;
+      background: rgba(255,255,255,0.2);
+      border: 1px solid white;
+      border-radius: 20px;
+      color: white;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-logout:hover {
+      background: white;
+      color: #667eea;
+    }
+
+    /* ===== MENU ===== */
+    .menu {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      padding: 40px;
+    }
+
+    .menu-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px 30px;
+      border-radius: 15px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    .menu-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    }
+
+    .menu-card .icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+
+    .menu-card h3 {
+      font-size: 20px;
+    }
+
+    /* ===== FORM MODAL ===== */
+    .form-modal {
+      max-width: 900px;
+      max-height: 85vh;
+    }
+
+   /* ===== FORM SECTIONS ===== */
+.form-section {
+  border: 2px solid #667eea;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  background: #f8f9ff;
+}
+
+/* HOUSEHOLD MAIN SECTION - สีพิเศษสำหรับหัวหน้าครอบครัว */
+.form-section.household-main-section {
+  background: linear-gradient(135deg, #e8f5e9 0%, #fff9c4 50%, #ffe0b2 100%);
+  border: 3px solid #4caf50;
+  box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
+  position: relative;
+}
+
+.form-section.household-main-section::before {
+  content: "👨‍👩‍👧‍👦 ຂໍ້ມູນຫົວໜ້າຄອບຄົວຫຼັກ";
+  position: absolute;
+  top: -15px;
+  left: 20px;
+  background: linear-gradient(135deg, #4caf50 0%, #66bb6a 100%);
+  color: white;
+  padding: 5px 15px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 3px 10px rgba(76, 175, 80, 0.4);
+}
+
+.form-section.household-main-section h3 {
+  color: #2e7d32;
+  margin-top: 10px;
+}
+
+/* MEMBER SECTIONS - สีปกติสำหรับสมาชิก */
+.form-section.member-section {
+  background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+  border: 2px solid #e0e0e0;
+}
+
+.form-section.member-section h3 {
+  color: #667eea;
+}
+
+
+    .form-section h3 {
+      color: #667eea;
+      margin-bottom: 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .photo-upload {
+      text-align: center;
+      padding: 20px;
+      border: 2px dashed #667eea;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .photo-upload:hover {
+      background: #f0f0ff;
+    }
+
+    .photo-preview {
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 10px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 2px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f5f5f5;
+    }
+
+    .photo-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .photo-preview .placeholder {
+      font-size: 60px;
+      color: #ccc;
+    }
+
+    .btn-add-member {
+      width: 100%;
+      padding: 15px;
+      background: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      margin: 20px 0;
+    }
+
+    .btn-add-member:hover {
+      background: #45a049;
+      transform: translateY(-2px);
+    }
+
+    .btn-delete-member {
+      padding: 5px 15px;
+      background: #f44336;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .btn-delete-member:hover {
+      background: #da190b;
+    }
+
+    .form-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .form-buttons button {
+      flex: 1;
+    }
+
+    /* ===== DATA TABLE ===== */
+    .data-container {
+      padding: 40px;
+      display: none;
+    }
+
+    .data-container.active {
+      display: block;
+    }
+
+    .search-bar {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .search-bar input {
+      flex: 1;
+      min-width: 200px;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    .search-bar button {
+      padding: 12px 30px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+
+    .data-table th {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 15px;
+      text-align: left;
+      font-weight: 600;
+    }
+
+    .data-table td {
+      padding: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .data-table tr:hover {
+      background: #f8f9ff;
+    }
+
+    .profile-img {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #667eea;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .action-buttons button {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn-edit {
+      background: #2196F3;
+      color: white;
+    }
+
+    .btn-edit:hover {
+      background: #0b7dda;
+    }
+
+    .btn-edit-family {
+      background: #FF9800;
+      color: white;
+    }
+
+    .btn-edit-family:hover {
+      background: #e68900;
+    }
+
+    .btn-delete {
+      background: #f44336;
+      color: white;
+    }
+
+    .btn-delete:hover {
+      background: #da190b;
+    }
+
+    .btn-delete-family {
+      background: #9C27B0;
+      color: white;
+    }
+
+    .btn-delete-family:hover {
+      background: #7b1fa2;
+    }
+
+    .btn-back {
+      margin-bottom: 20px;
+      padding: 10px 20px;
+      background: #607d8b;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .btn-back:hover {
+      background: #546e7a;
+    }
+
+    /* ===== DELETE REASON MODAL ===== */
+    .reason-modal {
+      max-width: 400px;
+    }
+
+    .reason-options {
+      margin: 20px 0;
+    }
+
+    .reason-option {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .reason-option:hover {
+      border-color: #667eea;
+      background: #f8f9ff;
+    }
+
+    .reason-option.selected {
+      border-color: #667eea;
+      background: #f0f0ff;
+    }
+
+    .reason-option input[type="radio"] {
+      margin-right: 10px;
+    }
+
+    /* ===== LOADING ===== */
+    .loading {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .loading.active {
+      display: flex;
+    }
+
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ===== TOAST NOTIFICATION ===== */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+      z-index: 10000;
+      display: none;
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast.active {
+      display: block;
+    }
+
+    .toast.success {
+      border-left: 4px solid #4caf50;
+    }
+
+    .toast.error {
+      border-left: 4px solid #f44336;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    /* ===== IDLE WARNING ===== */
+    .idle-warning {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #ff9800;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+      z-index: 10000;
+      display: none;
+      animation: pulse 1s infinite;
+    }
+
+    .idle-warning.active {
+      display: block;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    /* ===== DATE INPUTS ===== */
+   .date-inputs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.date-inputs input {
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.date-inputs input.birthDay {
+  width: 80px;
+  min-width: 80px;
+}
+
+.date-inputs input.birthMonth {
+  width: 80px;
+  min-width: 80px;
+}
+
+.date-inputs input.birthYear {
+  width: 120px;
+  min-width: 120px;
+  flex: 1;
+}
+
+.date-inputs span {
+  color: #666;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+
+    /* ✅ ปัญหา 5: สีเขียวกระพริบสำหรับ Auto fields */
+    @keyframes greenPulse {
+      0%, 100% { 
+        background: #c8e6c9 !important;
+        box-shadow: 0 0 10px rgba(76, 175, 80, 0.3) !important;
+      }
+      50% { 
+        background: #a5d6a7 !important;
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.6) !important;
+      }
+    }
+    
+ .auto-calculate-field {
+      animation: greenPulse 1.5s infinite !important;
+      background: #c8e6c9 !important;
+      color: #2e7d32 !important;
+      font-weight: 600 !important;
+      border: 2px solid #4caf50 !important;
+    }
+
+    /* ✅ ປัญหา 1: badge จำนวนคนในครอบครัว - ตัวหนา/ใหญ่ขึ้น + สีไล่กระพริบแบบ smooth */
+    @keyframes familyBadgeGlow {
+      0%   { color: #667eea; text-shadow: 0 0 4px rgba(102,126,234,0.4); }
+      25%  { color: #e91e63; text-shadow: 0 0 6px rgba(233,30,99,0.45); }
+      50%  { color: #ff9800; text-shadow: 0 0 8px rgba(255,152,0,0.5); }
+      75%  { color: #4caf50; text-shadow: 0 0 6px rgba(76,175,80,0.45); }
+      100% { color: #667eea; text-shadow: 0 0 4px rgba(102,126,234,0.4); }
+    }
+   .family-summary-badge {
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: 0.3px;
+  display: inline-block;
+  animation: familyBadgeGlow 2.8s ease-in-out infinite;
+}
+    
+    /* ✅ ปัญหา 6: Marker pulse animation */
+    @keyframes markerPulse {
+      0%, 100% { 
+        transform: scale(1);
+        opacity: 1;
+      }
+      50% { 
+        transform: scale(1.2);
+        opacity: 0.7;
+      }
+    }
+    
+    .location-marker {
+      display: inline-block;
+      animation: markerPulse 1s infinite;
+      font-size: 28px;
+      cursor: pointer;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 768px) {
+      .header {
+        flex-direction: column;
+        gap: 15px;
+        text-align: center;
+      }
+
+      .menu {
+        grid-template-columns: 1fr;
+        padding: 20px;
+      }
+
+      .form-row {
+        grid-template-columns: 1fr;
+      }
+
+      .data-table {
+        font-size: 12px;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 8px;
+      }
+
+      .action-buttons {
+        flex-direction: column;
+      }
+
+      .search-bar {
+        flex-direction: column;
+      }
+
+.search-bar input,
+      .search-bar button {
+        width: 100%;
+      }
+    }
+
+    /* ===== SUMMARY REPORT STYLES ===== */
+.filter-scope-option > div:hover {
+      border-color: #667eea !important;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 15px rgba(0,0,0,0.15);
+    }
+    .filter-fields-body {
+      max-height: 65vh;
+      overflow-y: auto;
+      padding: 5px;
+    }
+    .filter-two-col {
+      display: flex;
+      gap: 20px;
+    }
+    .filter-column-group {
+      flex: 1;
+      min-width: 0;
+    }
+    .filter-column-group h4 {
+      color: #667eea;
+      margin-bottom: 10px;
+      position: sticky;
+      top: 0;
+      background: white;
+      padding: 5px 0;
+    }
+    .filter-field-row {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #f8f9ff;
+    }
+    .filter-field-row.hidden-column-active {
+      animation: hiddenColumnBlink 1s infinite;
+      border-color: #f44336 !important;
+      background: #ffebee !important;
+    }
+    @keyframes hiddenColumnBlink {
+      0%, 100% { box-shadow: 0 0 8px rgba(244, 67, 54, 0.4); }
+      50% { box-shadow: 0 0 18px rgba(244, 67, 54, 0.9); }
+    }
+    .filter-field-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      gap: 10px;
+    }
+    .filter-field-label-row label:first-child {
+      font-weight: 600;
+      color: #333;
+    }
+    .filter-hide-toggle {
+      font-size: 12px;
+      color: #999;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .filter-field-row select,
+    .filter-field-row input[type=number] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .filter-range-inputs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .filter-range-inputs input { width: 100%; }
+    @media (max-width: 768px) {
+      .filter-two-col { flex-direction: column; }
+    }
+    .summary-tabs {
+      display: flex;
+      gap: 5px;
+      border-bottom: 3px solid #e0e0e0;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    .summary-tab-btn {
+      padding: 10px 20px;
+      border: none;
+      background: #f0f0f0;
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 8px 8px 0 0;
+      transition: all 0.3s;
+    }
+    .summary-tab-btn.active {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .summary-content {
+      max-height: 50vh;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    .summary-household-block {
+      border: 2px solid #4caf50;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .summary-household-header {
+      background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+      padding: 10px 15px;
+      font-weight: 700;
+      color: #2e7d32;
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .summary-table th, .summary-table td {
+      border: 1px solid #ddd;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .summary-table th {
+      background: #667eea;
+      color: white;
+    }
+    .summary-unit-group {
+      background: #fff9e6;
+      border: 2px solid #ffc107;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 15px;
+    }
+    .summary-unit-group-title {
+      font-weight: 700;
+      color: #e65100;
+      margin-bottom: 10px;
+    }
+    .summary-chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+    .summary-chart-box {
+      background: white;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 15px;
+    }
+    .summary-toolbar {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 2px solid #e0e0e0;
+    }
+ .summary-download-group, .summary-print-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .summary-download-group button, .summary-print-group button {
+      width: auto;
+      padding: 10px 18px;
+    }
+
+    /* ===== DOWNLOAD PROGRESS MODAL ===== */
+    .download-progress-overlay {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      background: rgba(0,0,0,0.75);
+      display:none; justify-content:center; align-items:center;
+      z-index: 10005;
+    }
+    .download-progress-overlay.active { display:flex; }
+    .download-progress-box {
+      background:white; border-radius:20px; padding:40px; width:90%; max-width:420px; text-align:center;
+      box-shadow:0 20px 60px rgba(0,0,0,0.4);
+      animation: popupAppear 0.3s ease-out;
+    }
+    .download-progress-icon {
+      font-size:56px; margin-bottom:10px;
+      animation: downloadBounce 1s infinite;
+    }
+    @keyframes downloadBounce {
+      0%,100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    .download-progress-bar-track {
+      width:100%; height:18px; background:#e0e0e0; border-radius:10px; overflow:hidden; margin:20px 0 10px;
+    }
+    .download-progress-bar-fill {
+      height:100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius:10px;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px rgba(102,126,234,0.6);
+    }
+    .download-progress-percent {
+      font-size:24px; font-weight:800; color:#667eea; margin-bottom:5px;
+    }
+    .download-progress-message {
+      font-size:13px; color:#888;
+    }
+
+    /* ===== SUMMARY STAT CARDS ===== */
+    .summary-stat-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .summary-stat-card {
+      background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+      border: 2px solid #667eea;
+      border-radius: 12px;
+      padding: 15px;
+      text-align: center;
+      transition: all 0.3s;
+    }
+    .summary-stat-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(102,126,234,0.2);
+    }
+    .summary-stat-card .stat-icon { font-size: 28px; margin-bottom: 5px; }
+    .summary-stat-card .stat-value { font-size: 24px; font-weight: 800; color: #667eea; }
+    .summary-stat-card .stat-label { font-size: 12px; color: #777; margin-top: 3px; }
+  </style>
+</head>
+<body>
+  <!-- Loading Spinner -->
+  <div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div class="loading-counter" id="loadingCounter">0</div>
+  <div class="loading-message" id="loadingMessage">ກຳລັງໂຫລດຂໍ້ມູນ...</div>
+</div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Idle Warning -->
+  <div class="idle-warning" id="idleWarning">
+    ⚠️ ທ່ານຈະຖືກອອກຈາກລະບົບໃນອີກ <span id="idleTimer">5</span> ນາທີ
+  </div>
+
+  <!-- Login Modal -->
+  <div class="modal-overlay active" id="loginModal">
+    <div class="modal">
+      <h2>🔐 ເຂົ້າສູ່ລະບົບ</h2>
+
+      <!-- STEP 1: ເບີໂທ -->
+      <div class="login-step" id="loginStep1">
+        <div class="form-group">
+          <label>ເບີໂທລະສັບ *</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span style="padding:12px; background:#f0f0f0; border-radius:8px; font-weight:600;">85620</span>
+            <input type="text" id="loginPhone" maxlength="8" inputmode="numeric" placeholder="ປ້ອນເລກ 8 ຫຼັກ" style="flex:1; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:16px;">
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="verifyPhoneStep()">✅ ຕໍ່ໄປ</button>
+      </div>
+
+    <!-- STEP 2: ແຂວງ/ເມືອງ/ບ້ານ -->
+      <div class="login-step" id="loginStep2" style="display:none;">
+        <div class="form-group searchable-select-wrap">
+          <label>ແຂວງ *</label>
+          <input type="text" id="loginProvince" autocomplete="off" placeholder="ພິມຄົ້ນຫາ ຫຼື ກົດເພື່ອເລືອກ" onclick="openSearchDropdown('loginProvince')" oninput="filterSearchDropdown('loginProvince')">
+          <input type="hidden" id="loginProvinceValue">
+          <div class="searchable-dropdown-list" id="loginProvinceDropdown"></div>
+        </div>
+        <div class="form-group searchable-select-wrap">
+          <label>ເມືອງ *</label>
+          <input type="text" id="loginDistrict" autocomplete="off" disabled placeholder="ເລືອກແຂວງກ່ອນ" onclick="openSearchDropdown('loginDistrict')" oninput="filterSearchDropdown('loginDistrict')">
+          <input type="hidden" id="loginDistrictValue">
+          <div class="searchable-dropdown-list" id="loginDistrictDropdown"></div>
+        </div>
+        <div class="form-group searchable-select-wrap">
+          <label>ບ້ານ *</label>
+          <input type="text" id="loginVillage" autocomplete="off" disabled placeholder="ເລືອກເມືອງກ່ອນ" onclick="openSearchDropdown('loginVillage')" oninput="filterSearchDropdown('loginVillage')">
+          <input type="hidden" id="loginVillageValue">
+          <div class="searchable-dropdown-list" id="loginVillageDropdown"></div>
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="backLoginStep(1)">⬅️ ກັບຄືນ</button>
+        <button type="button" class="btn btn-primary" onclick="verifyLocationStep()">✅ ຕໍ່ໄປ</button>
+      </div>
+
+      <!-- STEP 3: ເລືອກຊື່ -->
+      <div class="login-step" id="loginStep3" style="display:none;">
+        <label style="display:block; margin-bottom:10px;">ເລືອກຊື່ຂອງທ່ານ *</label>
+        <div id="loginNameListContainer" style="max-height:300px; overflow-y:auto;"></div>
+        <button type="button" class="btn btn-secondary" onclick="backLoginStep(2)" style="margin-top:15px;">⬅️ ກັບຄືນ</button>
+      </div>
+
+      <!-- STEP 4: ລະຫັດຜ່ານ -->
+      <div class="login-step" id="loginStep4" style="display:none;">
+        <div class="form-group">
+          <label>ລະຫັດຜ່ານ (ລະຫັດ ອສບ ຂອງທ່ານ) *</label>
+          <input type="password" id="loginPassword">
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="backLoginStep(3)">⬅️ ກັບຄືນ</button>
+        <button type="button" class="btn btn-primary" onclick="finalLoginSubmit()">🔓 ເຂົ້າສູ່ລະບົບ</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Main Container -->
+  <div class="container" id="mainContainer">
+    <!-- Header -->
+    <div class="header">
+      <h1>📊 ລະບົບຂໍ້ມູນປະຊາກອນ</h1>
+  <div class="user-info">
+        <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleDarkMode()" title="ສະຫຼັບໂໝດມືດ/ສະຫວ່າງ">🌙</button>
+        <div class="user-name">
+          <div id="userName">👤 ...</div>
+          <div style="font-size: 12px; opacity: 0.9;" id="userLocation">📍 ...</div>
+        </div>
+        <button class="btn-logout" onclick="logout()">ອອກຈາກລະບົບ</button>
+      </div>
+    </div>
+
+    <!-- Menu -->
+    <div class="menu" id="menu">
+      <div class="menu-card" onclick="openPopulation()">
+        <div class="icon">👥</div>
+        <h3>ປະຊາກອນຄົງທີ່</h3>
+      </div>
+     <div class="menu-card" onclick="openMobilePopulation()">
+  <div class="icon">🚶</div>
+  <h3>ປະຊາກອນເຄື່ອນທີ່</h3>
+</div>
+      <div class="menu-card" onclick="showToast('ກຳລັງພັດທະນາ...', 'error')">
+        <div class="icon">🏞️</div>
+        <h3>ຂໍ້ມູນທີ່ດິນ</h3>
+      </div>
+      <div class="menu-card" onclick="showToast('ກຳລັງພັດທະນາ...', 'error')">
+        <div class="icon">🚗</div>
+        <h3>ຂໍ້ມູນຍານພາຫະນະ</h3>
+      </div>
+    </div>
+
+    <!-- Data Container -->
+ <div class="data-container" id="dataContainer">
+  <button class="btn-back" onclick="backToMenu()">⬅️ ກັບຄືນເມນູ</button>
+<button class="btn btn-primary" id="btnOpenSummary" style="width:auto; display:inline-block; margin-left:10px;" onclick="openSummaryModal('household')">📊 ສະຫຼຸບຂໍ້ມູນ</button>
+  <button class="btn btn-primary" id="btnOpenGpsSummary" style="width:auto; display:inline-block; margin-left:10px; background: linear-gradient(135deg, #009688 0%, #00796b 100%);" onclick="openGpsSummaryModal('household')">🗺️ ແຜນທີ່ GPS</button>
+  
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="🔍 ຄົ້ນຫາຊື່, ເບີໂທ, ບ້ານ..." onkeypress="if(event.key==='Enter') searchData()">
+  <button onclick="searchData()">🔍 ຄົ້ນຫາ</button>
+  <button onclick="clearSearch()" style="background: #607d8b;">❌ ລ້າງ</button>
+  <button class="btn-add-member" style="width: auto; margin: 0;" onclick="openHouseholdForm()">➕ ເພີ່ມຄອບຄົວໃໝ່</button>
+</div>
+
+<div class="population-toolbar">
+  <label style="font-weight:600; color:#667eea;">🔀 ຈັດຮຽງ:</label>
+  <select id="populationSortSelect" onchange="changePopulationSort(this.value)">
+    <option value="unitAsc">ໜ່ວຍ: ນ້ອຍ → ຫຼາຍ (ຄ່າເລີ່ມຕົ້ນ)</option>
+    <option value="unitDesc">ໜ່ວຍ: ຫຼາຍ → ນ້ອຍ</option>
+    <option value="nameAsc">ຊື່: A → Z</option>
+    <option value="nameDesc">ຊື່: Z → A</option>
+    <option value="memberCountDesc">ຈຳນວນສະມາຊິກ: ຫຼາຍ → ນ້ອຍ</option>
+    <option value="memberCountAsc">ຈຳນວນສະມາຊິກ: ນ້ອຍ → ຫຼາຍ</option>
+  </select>
+<div class="population-unit-filter-wrap">
+    <button type="button" class="population-unit-filter-btn" onclick="togglePopulationUnitDropdown()">🏘️ ກອງໜ່ວຍ (<span id="populationUnitCount">0</span>)</button>
+    <button type="button" class="population-unit-filter-clear-btn" onclick="clearPopulationUnitFilter()" title="ລ້າງຕົວກອງໜ່ວຍ">✖ ລ້າງຕົວກອງໜ່ວຍ</button>
+    <div id="populationUnitDropdown" class="population-unit-filter-dropdown"></div>
+  </div>
+</div>
+
+      <div style="overflow-x: auto;">
+      <table class="data-table" id="dataTable">
+          <thead>
+            <tr>
+              <th>ຮູບ</th>
+              <th>ຊື່-ນາມສະກຸນ</th>
+              <th>ເພດ</th>
+              <th>ສາຍພົວພັນ</th>
+              <th>ໜ່ວຍ</th>
+              <th>ຕິດຕໍ່</th>
+              <th>ການຈັດການ</th>
+            </tr>
+          </thead>
+          <tbody id="dataTableBody">
+            <tr>
+              <td colspan="7" style="text-align: center; padding: 40px;">
+                <div style="font-size: 48px; margin-bottom: 10px;">📋</div>
+                <div>ກຳລັງໂຫລດຂໍ້ມູນ...</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="pagination" id="pagination">
+        <button onclick="changePage('first')" id="btnFirst">⏮️ ໜ້າທຳອິດ</button>
+        <button onclick="changePage('prev')" id="btnPrev">◀️ ກ່ອນໜ້າ</button>
+        <span class="page-info">
+          ໜ້າ <span id="currentPage">1</span> / <span id="totalPages">1</span>
+        </span>
+        <button onclick="changePage('next')" id="btnNext">▶️ ຕໍ່ໄປ</button>
+        <button onclick="changePage('last')" id="btnLast">ໜ້າສຸດທ້າຍ ⏭️</button>
+      </div>
+      
+    </div>
+    <!-- Mobile Population Container -->
+<div class="data-container" id="mobileContainer">
+  <button class="btn-back" onclick="backToMenu()">⬅️ ກັບຄືນເມນູ</button>
+  
+  <div class="search-bar">
+    <input type="text" id="searchMobileInput" placeholder="🔍 ຊື່, ເບີໂທ, ເລກຫ້ອງ..." onkeypress="if(event.key==='Enter') searchMobileData()">
+    <button onclick="searchMobileData()">🔍 ຄົ້ນຫາ</button>
+    <button onclick="clearMobileSearch()" style="background: #607d8b;">❌ ລ້າງ</button>
+    <button class="btn-add-member" style="width: auto; margin: 0;" onclick="openMobileTypeModal()">➕ ເພີ່ມປະຊາກອນເຄື່ອນທີ່</button>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table class="data-table" id="mobileTable">
+      <thead>
+        <tr>
+          <th>ຮູບ</th>
+          <th>ຊື່-ນາມສະກຸນ</th>
+          <th>ເພດ</th>
+          <th>ເລກຫ້ອງ</th>
+          <th>ປະເພດ</th>
+          <th>ຕິດຕໍ່</th>
+          <th>ການຈັດການ</th>
+        </tr>
+      </thead>
+      <tbody id="mobileTableBody">
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 40px;">
+            <div style="font-size: 48px; margin-bottom: 10px;">📋</div>
+            <div>ກຳລັງໂຫລດຂໍ້ມູນ...</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="mobilePagination">
+    <button onclick="changeMobilePage('first')" id="btnMobileFirst">⏮️ ໜ້າທຳອິດ</button>
+    <button onclick="changeMobilePage('prev')" id="btnMobilePrev">◀️ ກ່ອນໜ້າ</button>
+    <span class="page-info">
+      ໜ້າ <span id="currentMobilePage">1</span> / <span id="totalMobilePages">1</span>
+    </span>
+    <button onclick="changeMobilePage('next')" id="btnMobileNext">▶️ ຕໍ່ໄປ</button>
+    <button onclick="changeMobilePage('last')" id="btnMobileLast">ໜ້າສຸດທ້າຍ ⏭️</button>
+  </div>
+</div>
+
+  <!-- Household Form Modal -->
+  <div class="modal-overlay" id="householdFormModal">
+    <div class="modal form-modal">
+      <h2 id="formTitle">➕ ເພີ່ມຄອບຄົວໃໝ່</h2>
+      <form id="householdForm">
+        <!-- Household Section -->
+       <div class="form-section household-main-section">
+  <h3>👨‍👩‍👧‍👦 ຂໍ້ມູນຫົວໜ້າຄອບຄົວ</h3>
+  <input type="hidden" id="householdCode">
+  
+  <div class="form-group">
+    <div class="photo-upload" onclick="document.getElementById('householdPhoto').click()">
+      <div class="photo-preview" id="householdPhotoPreview">
+        <div class="placeholder">❓</div>
+      </div>
+      <p>📷 ອັບໂຫລດ/ຖ່າຍຮູບ</p>
+      <p style="font-size: 12px; color: #666; margin-top: 5px;">💡 ຮູບນີ້ຈະຖືກກັອບປີໄປໃສ່ສະມາຊິກທີ່ເປັນ "ຫົວໜ້າຄອບຄົວ" ອັດຕະໂນມັດ</p>
+      <input type="file" id="householdPhoto" accept="image/*" style="display: none" onchange="previewPhoto(this, 'householdPhotoPreview')">
+    </div>
+  </div>
+
+  <!-- Row 1: Name, Phone, House Number -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ຊື່ ແລະ ນາມສະກຸນ *</label>
+      <input type="text" id="householdName" required>
+    </div>
+  <div class="form-group">
+      <label>ເບີໂທລະສັບ</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span style="padding:12px; background:#f0f0f0; border-radius:8px; font-weight:600; white-space:nowrap;">85620</span>
+        <input type="text" id="householdPhone" maxlength="8" inputmode="numeric" placeholder="8 ຫຼັກ" style="flex:1; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:16px;" oninput="this.value=this.value.replace(/\D/g,'').slice(0,8);">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>ເຮືອນເລກທີ</label>
+      <input type="text" id="houseNumber">
+    </div>
+  </div>
+
+  <!-- Row 2: Roof Count, Household Count, Family Count -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ຈໍານວນຫຼັງຄາເຮືອນ *</label>
+      <input type="number" id="roofCount" min="0" required>
+    </div>
+    <div class="form-group">
+      <label>ຈຳນວນຄົວເຮືອນ *</label>
+      <input type="number" id="householdCount" min="0" required>
+    </div>
+    <div class="form-group">
+      <label>ຈຳນວນຄອບຄົວ *</label>
+      <input type="number" id="familyCount" min="0" required>
+    </div>
+  </div>
+
+  <!-- Row 3: Village, District, Province -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ຊື່ບ້ານ</label>
+      <input type="text" id="village" readonly>
+    </div>
+    <div class="form-group">
+      <label>ເມືອງ</label>
+      <input type="text" id="district" readonly>
+    </div>
+    <div class="form-group">
+      <label>ແຂວງ</label>
+      <input type="text" id="province" readonly>
+    </div>
+  </div>
+
+  <!-- Row 4: Rental Location, Unit, House Position -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ສະຖານທີ່ພັກເຊົ່າ *</label>
+      <input type="text" id="rentalLocation" list="rentalLocationList" required>
+      <datalist id="rentalLocationList"></datalist>
+    </div>
+    <div class="form-group">
+      <label>ໜ່ວຍ *</label>
+      <input type="text" id="unit" required>
+    </div>
+    <div class="form-group">
+      <label>ຕໍາແໜ່ງເຮືອນ (Latitude, Longitude)</label>
+      <div style="display: flex; gap: 5px;">
+        <input type="text" id="housePosition" placeholder="例: 17.9757, 102.6331" style="flex: 1;">
+        <button type="button" onclick="openLocationPicker()" class="btn-location" title="ເລືອກຈາກແຜນທີ່">
+          📍
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 5: Registry Management -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ຈັດການສໍາມະໂນຄົວ *</label>
+      <button type="button" class="btn btn-primary" onclick="openRegistryModal()" style="width: 100%; padding: 12px;">
+        ⚙️ ຈັດການສໍາມະໂນຄົວ
+      </button>
+    </div>
+    <div class="form-group">
+      <label>ຈໍານວນປື້ມສໍາມະໂນຄົວ 📚 (Auto)</label>
+      <input type="number" id="registryBookCount" min="0" class="auto-calculate-field" readonly style="background: #e8f5e9; font-weight: 600; color: #2e7d32;">
+    </div>
+    <div class="form-group">
+      <label>ເລກທີສໍາມະໂນຄົວ 🔢 (Auto)</label>
+      <textarea id="registryNumber" rows="2" class="auto-calculate-field" readonly style="background: #e3f2fd; font-weight: 600; color: #1565c0; resize: vertical; width: 100%; padding: 10px; border: 2px solid #90caf9; border-radius: 5px;"></textarea>
+    </div>
+  </div>
+
+  <!-- Row 6: Family Member Count, Page Count -->
+  <div class="form-row">
+    <div class="form-group">
+      <label>ຈໍານວນຄົນໃນຄອບຄົວ 👥 (Auto)</label>
+      <input type="number" id="familyMemberCount" min="0" class="auto-calculate-field" readonly style="background: #e8f5e9; font-weight: 600; color: #2e7d32;">
+    </div>
+    <div class="form-group">
+      <label>ຈໍານວນມີໜ້າໃນສໍາມະໂນຄົວ 📋 (Auto)</label>
+      <input type="number" id="pageCount" min="0" class="auto-calculate-field" readonly style="background: #e3f2fd; font-weight: 600; color: #1565c0;">
+    </div>
+  </div>
+
+  <!-- Row 7: Village Participation -->
+  <div class="form-row">
+    <div class="form-group" style="grid-column: 1 / -1;">
+      <label>ການມີສ່ວນຮ່ວມກັບການຈັດຕັ້ງບ້ານ *</label>
+      <button type="button" class="btn btn-primary" onclick="openParticipationModal()" style="width: 100%; padding: 12px;">
+        🤝 ເລືອກລະດັບການມີສ່ວນຮ່ວມ
+      </button>
+      <input type="hidden" id="villageParticipation" required>
+      <div id="participationDisplay" style="margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; display: none;">
+        <span id="participationText"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden field for old monthly income (removed from UI) -->
+  <input type="hidden" id="monthlyIncome" value="0">
+</div>
+
+        <!-- Members Container -->
+        <div id="membersContainer"></div>
+
+        <button type="button" class="btn-add-member" onclick="addMemberForm()">➕ ເພີ່ມສະມາຊິກຄອບຄົວ</button>
+
+        <div class="form-buttons">
+          <button type="submit" class="btn btn-primary">💾 ບັນທຶກທັງໝົດ</button>
+          <button type="button" class="btn btn-secondary" onclick="closeHouseholdForm()">❌ ຍົກເລີກ</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+ <!-- Delete Reason Modal -->
+  <div class="modal-overlay" id="deleteReasonModal">
+    <div class="modal reason-modal">
+      <h2 id="deleteModalTitle">⚠️ ກະລຸນາລະບຸເຫດຜົນການລົບ</h2>
+      <div class="reason-options" id="deleteReasonOptions">
+        <!-- Options will be dynamically added here -->
+      </div>
+      <div class="form-buttons">
+        <button type="button" class="btn btn-primary" id="confirmDeleteBtn" onclick="confirmDelete()" disabled>✅ ຢືນຢັນລົບ</button>
+        <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">❌ ຍົກເລີກ</button>
+      </div>
+    </div>
+  </div>
+  <!-- Mobile Type Selection Modal -->
+<div class="modal-overlay" id="mobileTypeModal">
+  <div class="modal" style="max-width: 500px;">
+    <h2>🚶 ເລືອກປະເພດປະຊາກອນເຄື່ອນທີ່</h2>
+    
+    <div style="margin: 30px 0;">
+      <div class="mobile-type-option" onclick="selectMobileType('ພັກເຊົາຄົງທີ່')" data-type="ພັກເຊົາຄົງທີ່">
+        <div style="display: flex; align-items: center; padding: 20px; border: 3px solid #e0e0e0; border-radius: 15px; cursor: pointer; transition: all 0.3s; background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);">
+          <div style="font-size: 48px; margin-right: 20px;">🏠</div>
+          <div style="flex: 1;">
+            <div style="font-size: 20px; font-weight: 600; color: #1976d2; margin-bottom: 5px;">ພັກເຊົາຄົງທີ່</div>
+            <div style="font-size: 14px; color: #555;">ເລືອກຈາກຫົວໜ້າຄອບຄົວທີ່ມີຢູ່ແລ້ວ</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="mobile-type-option" onclick="selectMobileType('ພັກເຊົາເຄື່ອນທີ່')" data-type="ພັກເຊົາເຄື່ອນທີ່" style="margin-top: 15px;">
+        <div style="display: flex; align-items: center; padding: 20px; border: 3px solid #e0e0e0; border-radius: 15px; cursor: pointer; transition: all 0.3s; background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);">
+          <div style="font-size: 48px; margin-right: 20px;">🚗</div>
+          <div style="flex: 1;">
+            <div style="font-size: 20px; font-weight: 600; color: #f57c00; margin-bottom: 5px;">ພັກເຊົາເຄື່ອນທີ່</div>
+            <div style="font-size: 14px; color: #555;">ສ້າງຂໍ້ມູນໃໝ່ທັງໝົດ</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="form-buttons">
+      <button type="button" class="btn btn-secondary" onclick="closeMobileTypeModal()">❌ ຍົກເລີກ</button>
+    </div>
+  </div>
+</div>
+
+<!-- Household Selector Modal (for ພັກເຊົາຄົງທີ່) -->
+<div class="modal-overlay" id="householdSelectorModal">
+  <div class="modal" style="max-width: 600px;">
+    <h2>🏠 ເລືອກຫົວໜ້າຄອບຄົວ</h2>
+    
+    <div class="form-group">
+      <label>ຄົ້ນຫາຊື່ຫົວໜ້າຄອບຄົວ</label>
+      <input type="text" id="householdSearchInput" list="householdNameList" placeholder="ພິມຊື່ເພື່ອຄົ້ນຫາ..." oninput="filterHouseholdList()" onkeyup="filterHouseholdList()">
+      <datalist id="householdNameList"></datalist>
+    </div>
+    
+    <div id="householdListContainer" style="max-height: 400px; overflow-y: auto; margin: 20px 0; border: 2px solid #e0e0e0; border-radius: 10px; padding: 10px;">
+      <!-- Household cards will be inserted here -->
+    </div>
+    
+    <div class="form-buttons">
+      <button type="button" class="btn btn-secondary" onclick="closeHouseholdSelectorModal()">❌ ຍົກເລີກ</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile Form Modal -->
+<div class="modal-overlay" id="mobileFormModal">
+  <div class="modal form-modal">
+    <h2 id="mobileFormTitle">➕ ເພີ່ມປະຊາກອນເຄື່ອນທີ່</h2>
+    <form id="mobileForm">
+      <input type="hidden" id="mobileCode">
+      <input type="hidden" id="mobileType">
+      
+      <!-- Main Section -->
+      <div class="form-section" style="background: linear-gradient(135deg, #e8f5e9 0%, #fff9c4 50%, #ffe0b2 100%); border: 3px solid #4caf50;">
+        <h3>📋 ຂໍ້ມູນຫຼັກ</h3>
+        
+        <!-- Row 1: Owner Name, Household Code, Room Number -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>ຊື່ເຈົ້າຂອງຫ້ອງແຖວ *</label>
+            <input type="text" id="mobileOwnerName" list="ownerNameList" required>
+            <datalist id="ownerNameList"></datalist>
+          </div>
+          <div class="form-group">
+            <label>ລະຫັດຫ້ອງແຖວ</label>
+            <input type="text" id="mobileHouseholdCode" readonly style="background: #e8f5e9;">
+          </div>
+          <div class="form-group">
+            <label>ຫ້ອງເບີທີ *</label>
+            <input type="number" id="mobileRoomNumber" required>
+          </div>
+        </div>
+        
+        <!-- Row 2: Province, District, Village -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>ແຂວງປະຈຸບັນ</label>
+            <input type="text" id="mobileProvince" readonly style="background: #e8f5e9;">
+          </div>
+          <div class="form-group">
+            <label>ເມືອງປະຈຸບັນ</label>
+            <input type="text" id="mobileDistrict" readonly style="background: #e8f5e9;">
+          </div>
+          <div class="form-group">
+            <label>ບ້ານຢູ່ປະຈຸບັນ</label>
+            <input type="text" id="mobileVillage" readonly style="background: #e8f5e9;">
+          </div>
+        </div>
+        
+        <!-- Row 3: Unit, Position -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>ໜ່ວຍ *</label>
+            <input type="text" id="mobileUnit" required>
+          </div>
+          <div class="form-group">
+            <label>ຕໍາແໜ່ງບ່ອນພັກ (Latitude, Longitude)</label>
+            <div style="display: flex; gap: 5px;">
+              <input type="text" id="mobilePosition" placeholder="例: 17.9757, 102.6331" style="flex: 1;" readonly>
+              <button type="button" onclick="openMobileLocationPicker()" class="btn-location" title="ເລືອກຈາກແຜນທີ່">📍</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>ຈໍານວນຫ້ອງມີຄົນຢູ່ 👥 (Auto)</label>
+            <input type="number" id="mobileRoomCount" readonly class="auto-calculate-field" style="background: #e8f5e9;">
+          </div>
+        </div>
+      </div>
+      
+      <!-- Members Container -->
+      <div id="mobileMembersContainer"></div>
+      
+      <button type="button" class="btn-add-member" onclick="addMobileMemberForm()">➕ ເພີ່ມສະມາຊິກ</button>
+      
+      <div class="form-buttons">
+        <button type="submit" class="btn btn-primary">💾 ບັນທຶກທັງໝົດ</button>
+        <button type="button" class="btn btn-secondary" onclick="closeMobileForm()">❌ ຍົກເລີກ</button>
+      </div>
+    </form>
+  </div>
+</div>
+  
+<!-- Village Participation Modal -->
+<div class="modal-overlay" id="participationModal">
+  <div class="modal" style="max-width: 500px;">
+    <h2>🤝 ເລືອກລະດັບການມີສ່ວນຮ່ວມກັບການຈັດຕັ້ງບ້ານ</h2>
+    
+    <div class="participation-options" style="margin: 20px 0;">
+      <div class="participation-option" onclick="selectParticipation('excellent')" data-value="excellent">
+        <div style="display: flex; align-items: center; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s;">
+          <input type="radio" name="participation" value="excellent" style="margin-right: 15px;">
+          <div>
+            <div style="font-weight: 600; color: #2e7d32;">⭐⭐⭐⭐⭐ ມີສ່ວນຮ່ວມດີເລີດ</div>
+            <div style="font-size: 14px; color: #666; margin-top: 5px;">ຮ່ວມກິດຈະກໍາທຸກຄັ້ງ, ເປັນຜູ້ນໍາໃນການຈັດຕັ້ງ</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="participation-option" onclick="selectParticipation('verygood')" data-value="verygood">
+        <div style="display: flex; align-items: center; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s;">
+          <input type="radio" name="participation" value="verygood" style="margin-right: 15px;">
+          <div>
+            <div style="font-weight: 600; color: #388e3c;">⭐⭐⭐⭐ ມີສ່ວນຮ່ວມດີຫຼາຍ</div>
+            <div style="font-size: 14px; color: #666; margin-top: 5px;">ຮ່ວມກິດຈະກໍາເປັນສ່ວນໃຫຍ່, ໃຫ້ການສະໜັບສະໜູນດີ</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="participation-option" onclick="selectParticipation('moderate')" data-value="moderate">
+        <div style="display: flex; align-items: center; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s;">
+          <input type="radio" name="participation" value="moderate" style="margin-right: 15px;">
+          <div>
+            <div style="font-weight: 600; color: #f57c00;">⭐⭐⭐ ມີສ່ວນຮ່ວມປານກາງ</div>
+            <div style="font-size: 14px; color: #666; margin-top: 5px;">ຮ່ວມກິດຈະກໍາບາງຄັ້ງ, ໃຫ້ການຮ່ວມມືພໍສົມຄວນ</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="participation-option" onclick="selectParticipation('lacking')" data-value="lacking">
+        <div style="display: flex; align-items: center; padding: 15px; border: 2px solid #e0e0e0; border-radius: 10px; margin-bottom: 10px; cursor: pointer; transition: all 0.3s;">
+          <input type="radio" name="participation" value="lacking" style="margin-right: 15px;">
+          <div>
+            <div style="font-weight: 600; color: #d32f2f;">⭐ ຂາດການມີສ່ວນຮ່ວມ</div>
+            <div style="font-size: 14px; color: #666; margin-top: 5px;">ບໍ່ຄ່ອຍຮ່ວມກິດຈະກໍາ, ຕ້ອງການການຊຸກຍູ້</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="form-buttons">
+      <button type="button" class="btn btn-primary" onclick="confirmParticipation()" disabled id="confirmParticipationBtn">✅ ຢືນຢັນ</button>
+      <button type="button" class="btn btn-secondary" onclick="closeParticipationModal()">❌ ຍົກເລີກ</button>
+    </div>
+  </div>
+</div>
+  <!-- Registry Management Modal -->
+  <div class="modal-overlay" id="registryModal">
+  <div class="modal registry-modal">
+    <h2>⚙️ ຈັດການສໍາມະໂນຄົວ</h2>
+    
+    <!-- Option 1: Old Registry -->
+    <div class="registry-option" id="oldRegistryOption">
+      <div class="registry-option-header" onclick="toggleRegistryOption('old')">
+        <input type="checkbox" id="chkOldRegistry" onchange="toggleRegistryOption('old')">
+        <label for="chkOldRegistry">📕 ສໍາມະໂນຄົວເກົ່າ</label>
+      </div>
+      <div class="registry-details" id="oldRegistryDetails">
+        <div class="registry-count-input">
+          <label>ຈໍານວນ:</label>
+          <input type="number" id="oldRegistryCount" min="0" value="0" oninput="updateOldRegistryNumbers()">
+          <span>ປື້ມ</span>
+        </div>
+        <div class="registry-numbers" id="oldRegistryNumbers"></div>
+      </div>
+    </div>
+    
+    <!-- Option 2: New Registry -->
+    <div class="registry-option" id="newRegistryOption">
+      <div class="registry-option-header" onclick="toggleRegistryOption('new')">
+        <input type="checkbox" id="chkNewRegistry" onchange="toggleRegistryOption('new')">
+        <label for="chkNewRegistry">📗 ສໍາມະໂນຄົວໃໝ່</label>
+      </div>
+      <div class="registry-details" id="newRegistryDetails">
+        <div class="registry-count-input">
+          <label>ຈໍານວນ:</label>
+          <input type="number" id="newRegistryCount" min="0" value="0" oninput="updateNewRegistryNumbers()">
+          <span>ປື້ມ</span>
+        </div>
+        <div class="registry-numbers" id="newRegistryNumbers"></div>
+      </div>
+    </div>
+    
+    <!-- Option 3: No Registry -->
+    <div class="registry-option" id="noRegistryOption">
+      <div class="registry-option-header" onclick="toggleRegistryOption('none')">
+        <input type="checkbox" id="chkNoRegistry" onchange="toggleRegistryOption('none')">
+        <label for="chkNoRegistry">❌ ບໍ່ມີສໍາມະໂນຄົວ</label>
+      </div>
+    </div>
+    
+    <!-- Summary -->
+    <div class="registry-summary">
+      <h4>📊 ສະຫຼຸບ</h4>
+      <div class="registry-summary-item">
+        <span>ສໍາມະໂນຄົວເກົ່າ:</span>
+        <span id="summaryOldCount">0 ປື້ມ</span>
+      </div>
+      <div class="registry-summary-item">
+        <span>ສໍາມະໂນຄົວໃໝ່:</span>
+        <span id="summaryNewCount">0 ປື້ມ</span>
+      </div>
+      <div class="registry-summary-item">
+        <span>ລວມທັງໝົດ:</span>
+        <span id="summaryTotalCount">0 ປື້ມ</span>
+      </div>
+    </div>
+    
+    <!-- Buttons -->
+    <div class="form-buttons">
+      <button type="button" class="btn btn-primary" onclick="confirmRegistry()">✅ ຢືນຢັນ</button>
+      <button type="button" class="btn btn-secondary" onclick="closeRegistryModal()">❌ ຍົກເລີກ</button>
+    </div>
+  </div>
+</div>
+  <!-- Image Crop Modal -->
+  <div class="crop-modal" id="cropModal">
+    <div class="crop-modal-content">
+      <h2>✂️ ຕັດ ແລະ ປັບແຕ່ງຮູບພາບ</h2>
+      
+      <!-- Aspect Ratio Selector -->
+      <div class="aspect-ratio-selector">
+        <button class="aspect-btn active" data-ratio="1" onclick="setAspectRatio(1)">⬛ 1:1</button>
+        <button class="aspect-btn" data-ratio="0.75" onclick="setAspectRatio(0.75)">📱 3:4</button>
+        <button class="aspect-btn" data-ratio="1.33" onclick="setAspectRatio(1.33)">🖼️ 4:3</button>
+        <button class="aspect-btn" data-ratio="NaN" onclick="setAspectRatio(NaN)">🆓 Free</button>
+      </div>
+      
+      <!-- Crop Container -->
+      <div class="crop-container">
+        <img id="cropImage" src="" alt="Crop">
+      </div>
+      
+      <!-- Crop Tools -->
+      <div class="crop-tools">
+        <button class="crop-tool-btn" onclick="rotateCropImage(-90)" title="ໝຸນຊ້າຍ 90°">
+          ↺ ໝຸນຊ້າຍ
+        </button>
+        <button class="crop-tool-btn" onclick="rotateCropImage(90)" title="ໝຸນຂວາ 90°">
+          ↻ ໝຸນຂວາ
+        </button>
+        <button class="crop-tool-btn" onclick="flipCropImage('horizontal')" title="ພິດລວງນອນ">
+          ⇄ ພິດນອນ
+        </button>
+        <button class="crop-tool-btn" onclick="flipCropImage('vertical')" title="ພິດລວງຕັ້ງ">
+          ⇅ ພິດຕັ້ງ
+        </button>
+        <button class="crop-tool-btn" onclick="zoomCropImage(0.1)" title="ຂະຫຍາຍ">
+          🔍+ ຂະຫຍາຍ
+        </button>
+        <button class="crop-tool-btn" onclick="zoomCropImage(-0.1)" title="ຫຍໍ້">
+          🔍- ຫຍໍ້
+        </button>
+        <button class="crop-tool-btn" onclick="resetCrop()" title="ຣີເຊັດ">
+          🔄 ຣີເຊັດ
+        </button>
+      </div>
+      
+      <!-- Action Buttons -->
+      <div class="crop-buttons">
+        <button type="button" class="btn btn-primary" onclick="confirmCrop()">✅ ຢືນຢັນ</button>
+        <button type="button" class="btn btn-secondary" onclick="closeCropModal()">❌ ຍົກເລີກ</button>
+      </div>
+    </div>
+  </div>
+ <!-- Location Picker Modal -->
+<div class="location-modal" id="locationModal">
+  <div class="location-modal-content">
+    <h2>📍 ເລືອກຕໍາແໜ່ງເຮືອນ</h2>
+    <div class="location-info">
+      <div><strong>📌 ຕໍາແໜ່ງທີ່ເລືອກ:</strong></div>
+      <div id="selectedLocation">ກະລຸນາກົດເທິງແຜນທີ່ເພື່ອເລືອກຕໍາແໜ່ງ</div>
+    </div>
+    <div style="position: relative;">
+      <div id="map"></div>
+      <div class="map-layer-switcher">
+  <button class="map-layer-btn" id="btnStreetMap" onclick="switchMapLayer('street')">
+    🗺️ ແຜນທີ່
+  </button>
+  <button class="map-layer-btn active" id="btnSatellite" onclick="switchMapLayer('satellite')">
+    🛰️ ດາວທຽມ
+  </button>
+  <button class="map-layer-btn" id="btnMyLocation" onclick="goToMyLocation()">
+    📍 ຕຳແໜ່ງຂອງຂ້ອຍ
+  </button>
+</div>
+    </div>
+    <div class="location-buttons">
+      <button type="button" class="btn btn-primary" onclick="confirmLocation()">✅ ຢືນຢັນຕໍາແໜ່ງ</button>
+      <button type="button" class="btn btn-secondary" onclick="closeLocationPicker()">❌ ຍົກເລີກ</button>
+    </div>
+  </div>
+</div>
+<!-- Image Preview Modal -->
+  <div class="image-preview-modal" id="imagePreviewModal" onclick="closeImagePreview()">
+    <img src="" alt="Preview" id="imagePreviewImg">
+  </div>
+
+  <!-- Download Progress Modal -->
+  <div class="download-progress-overlay" id="downloadProgressOverlay">
+    <div class="download-progress-box">
+      <div class="download-progress-icon" id="downloadProgressIcon">📥</div>
+      <h3 id="downloadProgressTitle">ກຳລັງດາວໂຫລด...</h3>
+      <div class="download-progress-bar-track">
+        <div class="download-progress-bar-fill" id="downloadProgressBarFill" style="width:0%;"></div>
+      </div>
+      <div class="download-progress-percent" id="downloadProgressPercent">0%</div>
+      <div class="download-progress-message" id="downloadProgressMessage">ກະລຸນາລໍຖ້າ ຢ່າປິດໜ້ານີ້...</div>
+    </div>
+  </div>
+
+  <!-- Summary Report Modal -->
+  <div class="modal-overlay" id="summaryModal">
+    <div class="modal" style="max-width: 1200px; width: 95%; max-height: 92vh;">
+      <h2 id="summaryModalTitle">📊 ສະຫຼຸບຂໍ້ມູນ</h2>
+
+    <div style="margin-bottom: 15px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" style="width:auto;" onclick="openFilterScopeModal()">🔍 ຕົວກອງ (<span id="activeFilterCount">0</span>)</button>
+        <button type="button" class="btn btn-secondary" style="width:auto;" onclick="resetAllFilters()">🔄 ລ້າງຕົວກອງທັງໝົດ</button>
+      </div>
+
+      <div class="summary-tabs">
+        <button class="summary-tab-btn active" id="tabBtnTable" onclick="switchSummaryTab('table')">📋 ຕາລາງ</button>
+        <button class="summary-tab-btn" id="tabBtnChart" onclick="switchSummaryTab('chart')">📈 ແບບຊາດສ</button>
+        <button class="summary-tab-btn" id="tabBtnUnit" onclick="switchSummaryTab('unit')">📍 ລາຍຊື່ຕາມໜ່ວຍ</button>
+      </div>
+
+      <div class="summary-content" id="summaryContent"></div>
+
+   <div class="summary-toolbar">
+    <div class="summary-download-group">
+          <button type="button" class="btn btn-primary" id="btnDownloadExcel" onclick="downloadExcel()">📥 Excel</button>
+          <button type="button" class="btn btn-primary" id="btnDownloadPDF" onclick="downloadPDF()">📥 PDF</button>
+          <button type="button" class="btn btn-primary" id="btnDownloadWord" onclick="downloadWord()">📥 Word</button>
+        </div>
+        <div class="summary-print-group">
+          <button type="button" class="btn btn-secondary" onclick="printReport()">🖨️ ພິมเอกสาร</button>
+          <button type="button" class="btn btn-secondary" onclick="closeSummaryModal()">❌ ปิด</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Scope Selection Modal -->
+  <div class="modal-overlay" id="filterScopeModal">
+    <div class="modal" style="max-width: 500px;">
+      <h2>🔍 ເລືອກຂອບເຂດຕົວກອง</h2>
+      <div style="margin: 20px 0;">
+        <div class="filter-scope-option" onclick="selectFilterScope('household')">
+          <div style="display:flex; align-items:center; padding:18px; border:3px solid #e0e0e0; border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.3s; background:linear-gradient(135deg,#e8f5e9 0%,#c8e6c9 100%);">
+            <div style="font-size:36px; margin-right:15px;">🏠</div>
+            <div><div style="font-weight:700; color:#2e7d32; font-size:16px;">ຕົວກອງຫົວໜ້າຄອບຄົວ</div><div style="font-size:13px; color:#555;">คอลัมน์ A ถึง T</div></div>
+          </div>
+        </div>
+        <div class="filter-scope-option" onclick="selectFilterScope('member')">
+          <div style="display:flex; align-items:center; padding:18px; border:3px solid #e0e0e0; border-radius:12px; margin-bottom:12px; cursor:pointer; transition:all 0.3s; background:linear-gradient(135deg,#e3f2fd 0%,#bbdefb 100%);">
+            <div style="font-size:36px; margin-right:15px;">👥</div>
+            <div><div style="font-weight:700; color:#1976d2; font-size:16px;">ຕົວກອງສະມາຊິກຄອບຄົວ</div><div style="font-size:13px; color:#555;">คอลัมน์ A ถึง W</div></div>
+          </div>
+        </div>
+        <div class="filter-scope-option" onclick="selectFilterScope('both')">
+          <div style="display:flex; align-items:center; padding:18px; border:3px solid #e0e0e0; border-radius:12px; cursor:pointer; transition:all 0.3s; background:linear-gradient(135deg,#fff3e0 0%,#ffe0b2 100%);">
+            <div style="font-size:36px; margin-right:15px;">🏠+👥</div>
+            <div><div style="font-weight:700; color:#f57c00; font-size:16px;">ທັ້ງຫົວໜ້າຄອບຄົວ ແລະ ສະມາຊິກ</div><div style="font-size:13px; color:#555;">ສະແດງ 2 ຂໍ້ມູນ</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="form-buttons">
+        <button type="button" class="btn btn-secondary" onclick="closeFilterScopeModal()">❌ ຍົກເລິກ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Fields Modal -->
+  <div class="modal-overlay" id="filterFieldsModal">
+    <div class="modal" style="max-width: 1300px; width: 96%; max-height: 90vh;">
+      <h2 id="filterFieldsModalTitle">🔍 ຕົວກອງ</h2>
+      <div class="filter-fields-body" id="filterFieldsBody"></div>
+      <div class="form-buttons" style="margin-top: 15px;">
+        <button type="button" class="btn btn-primary" onclick="applyNewFilters()">✅ ນໍາໃຊ້ຕົວກອງ</button>
+        <button type="button" class="btn btn-secondary" onclick="closeFilterFieldsModal()">❌ ປິດ</button>
+      </div>
+    </div>
+  </div>
+
+<!-- GPS Summary Map Modal -->
+  <div class="modal-overlay" id="gpsSummaryModal">
+   <div class="modal" style="max-width: 100vw; width: 100vw; height: 100vh; max-height: 100vh; display: flex; flex-direction: column; padding: 15px; border-radius: 0; margin: 0;">
+      <h2 style="margin-bottom: 10px;">🗺️ ແຜນທີ່ GPS ສະຫຼຸບຂໍ້ມູນ</h2>
+ <div style="display:flex; gap:10px; margin-bottom:10px; flex-wrap: wrap;">
+        <input type="text" id="gpsSearchInput" placeholder="🔍 ຄົ້ນຫາຊື່ ຫຼື ເບີໂທ..." style="flex:1; min-width:200px; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:16px;">
+        <button type="button" onclick="clearGpsSearch()" style="padding:12px 20px; background:#607d8b; color:white; border:none; border-radius:8px; cursor:pointer;">❌ ລ້າງຄົ້ນຫາ</button>
+        <div style="position:relative;">
+          <button type="button" id="btnGpsUnitFilter" onclick="toggleGpsUnitDropdown()" style="padding:12px 20px; background:linear-gradient(135deg,#9c27b0 0%,#673ab7 100%); color:white; border:none; border-radius:8px; cursor:pointer; white-space:nowrap;">🏘️ ຕົວກອງໜ່ວຍ (<span id="gpsUnitCount">0</span>)</button>
+          <div id="gpsUnitDropdown" style="display:none; position:absolute; top:110%; left:0; background:white; border:2px solid #e0e0e0; border-radius:10px; box-shadow:0 5px 20px rgba(0,0,0,0.25); padding:10px; z-index:5000; max-height:280px; overflow-y:auto; min-width:220px;"></div>
+        </div>
+        <button type="button" id="btnGpsMyLocationToggle" onclick="toggleMyLocationTracking()" style="padding:12px 20px; background:linear-gradient(135deg,#4285F4 0%,#1976D2 100%); color:white; border:none; border-radius:8px; cursor:pointer;">📍 ຕໍາແໜ່ງຂອງຂ້ອຍ</button>
+      </div>
+      <div id="gpsSummaryMap" style="flex: 1; border-radius: 10px; margin-bottom: 10px;"></div>
+      <div class="form-buttons">
+        <button type="button" class="btn btn-secondary" onclick="closeGpsSummaryModal()">❌ ປິດ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Datalists for options -->
+  <datalist id="genderList"></datalist>
+  <datalist id="occupationList"></datalist>
+  <datalist id="insuranceList"></datalist>
+  <datalist id="educationList"></datalist>
+  <datalist id="maritalStatusList"></datalist>
+  <datalist id="diseaseList"></datalist>
+  <datalist id="ethnicityList"></datalist>
+  <datalist id="relationshipList"></datalist>
+  <datalist id="religionList"></datalist>
+  <datalist id="bodyCompleteList"></datalist>
+  <datalist id="actualResidentList"></datalist>
+  <datalist id="inRegistryList"></datalist>
+
+  <script>
+    // ===================================
+    // GLOBAL VARIABLES
+    // ===================================
+
+ let currentUser = null;
+ let searchDropdownData = { loginProvince: [], loginDistrict: [], loginVillage: [] };
+    let loginData = null;
+    let optionsData = null;
+    let householdsData = [];
+    let mobilesData = [];
+    let initialDataLoaded = false; // ✅ ใหม่: บอกว่าโหลดข้อมูลรอบแรกหลัง login เสร็จแล้วหรือยัง
+    let sessionRestored = false; // ✅ ใหม่: บอกว่ากู้คืน session เก่ามาใช้ต่อหรือไม่ (ระบบ 24 ชม.)
+let currentMobileType = null; // 'ພັກເຊົາຄົງທີ່' or 'ພັກເຊົາເຄື່ອນທີ່'
+let mobileMemberCounter = 0;
+let currentMobilePage = 1;
+const mobileRowsPerPage = 30;
+let totalMobileRows = 0;
+let selectedHouseholdForMobile = null;
+    let idleTimer = null;
+    let idleWarningTimer = null;
+    let memberCounter = 0;
+    let deleteTarget = null;
+    let selectedReason = null;
+    let villageSheetId = null; // เพิ่มตัวแปรเก็บ Sheet ID ของบ้าน
+    // Image Crop variables
+    let cropper = null;
+    let currentCropTarget = null;
+    let currentCropPreviewId = null;
+    // Registry management
+    let registryData = {
+      old: { enabled: false, count: 0, numbers: [] },
+      new: { enabled: false, count: 0, numbers: [] },
+      none: false
+    };
+   // เพิ่มบรรทัดเหล่านี้
+    let currentPage = 1;
+    const rowsPerPage = 30;
+    let totalRows = 0;
+    let populationSortMode = 'unitAsc';
+    let populationUnitFilter = [];
+    const UNIT_COLOR_PALETTE = [
+      { bg: '#e8f5e9', border: '#4caf50', header: 'linear-gradient(135deg, #4caf50 0%, #66bb6a 100%)' },
+      { bg: '#e3f2fd', border: '#2196f3', header: 'linear-gradient(135deg, #2196f3 0%, #42a5f5 100%)' },
+      { bg: '#fff3e0', border: '#ff9800', header: 'linear-gradient(135deg, #ff9800 0%, #ffa726 100%)' },
+      { bg: '#fce4ec', border: '#e91e63', header: 'linear-gradient(135deg, #e91e63 0%, #ec407a 100%)' },
+      { bg: '#f3e5f5', border: '#9c27b0', header: 'linear-gradient(135deg, #9c27b0 0%, #ab47bc 100%)' },
+      { bg: '#e0f2f1', border: '#009688', header: 'linear-gradient(135deg, #009688 0%, #26a69a 100%)' },
+      { bg: '#fff8e1', border: '#ffc107', header: 'linear-gradient(135deg, #ffc107 0%, #ffca28 100%)' },
+      { bg: '#efebe9', border: '#795548', header: 'linear-gradient(135deg, #795548 0%, #8d6e63 100%)' }
+    ];
+
+    // IndexedDB
+    let db = null;
+    const DB_NAME = 'PopulationDB';
+    const DB_VERSION = 1;
+// ===================================
+    // DARK MODE
+    // ===================================
+    const THEME_KEY = 'pop_theme_v1';
+
+    function initDarkMode() {
+      try {
+        const savedTheme = localStorage.getItem(THEME_KEY);
+        if (savedTheme === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          const btn = document.getElementById('themeToggleBtn');
+          if (btn) btn.textContent = '☀️';
+        }
+      } catch (e) {
+        console.error('❌ Dark mode init error:', e);
+      }
+    }
+
+    function toggleDarkMode() {
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      const btn = document.getElementById('themeToggleBtn');
+
+      if (isDark) {
+        document.documentElement.removeAttribute('data-theme');
+        if (btn) btn.textContent = '🌙';
+        try { localStorage.setItem(THEME_KEY, 'light'); } catch (e) {}
+      } else {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        if (btn) btn.textContent = '☀️';
+        try { localStorage.setItem(THEME_KEY, 'dark'); } catch (e) {}
+      }
+    }
+    // ===================================
+    // INITIALIZE
+    // ===================================
+    // ===================================
+    // SESSION 24-HOUR MANAGEMENT
+    // ===================================
+    const SESSION_KEY = 'pop_session_v1';
+    const SESSION_DURATION_MS = 24 * 60 * 60 * 1000; // 24 ชั่วโมง
+
+    function saveLoginSession() {
+      try {
+        const sessionData = {
+          user: currentUser,
+          villageSheetId: villageSheetId,
+          loginTimestamp: new Date().getTime()
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      } catch (e) {
+        console.error('❌ Failed to save session:', e);
+      }
+    }
+
+    function clearLoginSession() {
+      try {
+        localStorage.removeItem(SESSION_KEY);
+      } catch (e) {
+        console.error('❌ Failed to clear session:', e);
+      }
+    }
+
+    function tryRestoreSession() {
+      try {
+        const raw = localStorage.getItem(SESSION_KEY);
+        if (!raw) return false;
+
+        const sessionData = JSON.parse(raw);
+        if (!sessionData || !sessionData.user || !sessionData.villageSheetId || !sessionData.loginTimestamp) {
+          clearLoginSession();
+          return false;
+        }
+
+        const now = new Date().getTime();
+        const elapsed = now - sessionData.loginTimestamp;
+
+        if (elapsed >= SESSION_DURATION_MS) {
+          console.log('⏰ Session ໝົດອາຍຸແລ້ວ (ເກີນ 24 ຊົ່ວໂມງ) ຕ້ອງ Login ໃໝ່');
+          clearLoginSession();
+          return false;
+        }
+
+        currentUser = sessionData.user;
+        villageSheetId = sessionData.villageSheetId;
+        console.log('✅ ກູ້ຄືນ Session ສຳເລັດ (ຍັງບໍ່ຄົບ 24 ຊົ່ວໂມງ)');
+        return true;
+      } catch (e) {
+        console.error('❌ Failed to restore session:', e);
+        clearLoginSession();
+        return false;
+      }
+    }
+
+ 
+window.onload = function() {
+  console.log('=== Initializing App ===');
+  initDarkMode();
+  
+try {
+    // ✅ ระบบ 24 ชม.: ลองกู้คืน session เก่าก่อน
+    sessionRestored = tryRestoreSession();
+  } catch (e) {
+    console.error('❌ Session restore error:', e);
+    sessionRestored = false;
+  }
+
+  try {
+    // Initialize IndexedDB
+    initIndexedDB();
+    console.log('✅ IndexedDB initialized');
+  } catch (e) {
+    console.error('❌ IndexedDB error:', e);
+  }
+
+  if (sessionRestored) {
+    showMainApp();
+  }
+  
+  try {
+    // Setup idle timer
+    resetIdleTimer();
+    
+    // ✅ ใช้ passive listeners เพื่อประสิทธิภาพ
+    document.addEventListener('click', resetIdleTimer, { passive: true });
+    document.addEventListener('keypress', resetIdleTimer, { passive: true });
+    
+    // ✅ Throttle mousemove (ไม่เรียกทุกครั้ง)
+    let mouseMoveTimeout;
+    document.addEventListener('mousemove', function() {
+      if (mouseMoveTimeout) return;
+      mouseMoveTimeout = setTimeout(function() {
+        resetIdleTimer();
+        mouseMoveTimeout = null;
+      }, 1000); // เรียกทุก 1 วินาที
+    }, { passive: true });
+    
+console.log('✅ Idle timer setup');
+  } catch (e) {
+    console.error('❌ Idle timer error:', e);
+  }
+
+  try {
+    // ✅ ปัญหา 3: ผูก real-time listener ให้ชื่อ+เบอร์โทรหัวหน้าครอบครัว
+    const householdNameField = document.getElementById('householdName');
+    const householdPhoneField = document.getElementById('householdPhone');
+    if (householdNameField) {
+      householdNameField.addEventListener('input', syncHouseholdHeadToMemberForm, { passive: true });
+    }
+    if (householdPhoneField) {
+      householdPhoneField.addEventListener('input', syncHouseholdHeadToMemberForm, { passive: true });
+    }
+    console.log('✅ Household head real-time sync listener setup');
+  } catch (e) {
+    console.error('❌ Household head sync listener error:', e);
+  }
+};
+
+    // ===================================
+    // INDEXEDDB SETUP
+    // ===================================
+    function initIndexedDB() {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      
+      request.onerror = function() {
+        console.error('IndexedDB error:', request.error);
+        showToast('ເກີດຂໍ້ຜິດພາດໃນການເປີດຖານຂໍ້ມູນ', 'error');
+      };
+      
+      request.onsuccess = function() {
+        db = request.result;
+        loadInitialData();
+      };
+      
+      request.onupgradeneeded = function(e) {
+        db = e.target.result;
+        
+        if (!db.objectStoreNames.contains('loginData')) {
+          db.createObjectStore('loginData', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('optionsData')) {
+          db.createObjectStore('optionsData', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('households')) {
+          db.createObjectStore('households', { keyPath: 'householdCode' });
+        }
+        if (!db.objectStoreNames.contains('mobiles')) {
+  db.createObjectStore('mobiles', { keyPath: 'mobileCode' });
+}
+        if (!db.objectStoreNames.contains('syncQueue')) {
+          const syncStore = db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
+          syncStore.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+    }
+
+    // ===================================
+// LOAD INITIAL DATA
+// ===================================
+function loadInitialData() {
+  console.log('=== Loading Initial Data ===');
+  
+  // ✅ โหลด Login Data ก่อน (สำคัญที่สุด) - ยกเว้นถ้ากู้คืน session แล้ว ไม่ต้องโหลดซ้ำ
+  if (!sessionRestored) {
+    fetchLoginData();
+  } else {
+    console.log('✅ Session restored — skip fetching login data');
+  }
+  
+  // ✅ โหลด Options (ไม่รอ login data)
+  setTimeout(function() {
+    loadFromIndexedDB('optionsData', 'optionsData').then(function(data) {
+      if (data) {
+        console.log('✅ Options loaded from IndexedDB');
+        optionsData = data;
+      } else {
+        console.log('📥 Fetching options from server...');
+        fetchOptionsData();
+      }
+    });
+  }, 500);
+  
+  // ✅ ไม่โหลด Households ตอนนี้ (รอจน login แล้ว)
+  console.log('⏸️ Households will load after login');
+}
+function fetchLoginData() {
+  console.log('=== Fetching login data ===');
+  const startTime = new Date().getTime();
+  
+  showLoading(0, 'ກຳລັງໂຫລດຂໍ້ມູນເຂົ້າສູ່ລະບົບ...');
+  
+  // ✅ ตั้ง timeout (ถ้าเกิน 30 วินาทีให้แจ้งเตือน)
+  const timeoutId = setTimeout(function() {
+    console.warn('⚠️ Login data loading is taking longer than expected...');
+    const messageDiv = document.getElementById('loadingMessage');
+    if (messageDiv) {
+      messageDiv.textContent = '⏳ ກຳລັງໂຫລດ... ກະລຸນາລໍຖ້າ';
+      messageDiv.style.color = '#ffc107';
+    }
+  }, 30000); // 30 วินาที
+  
+  google.script.run
+    .withSuccessHandler(function(data) {
+      clearTimeout(timeoutId);
+      
+      const endTime = new Date().getTime();
+      const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+      console.log('✅ Login data received in ' + timeTaken + ' seconds');
+      
+      hideLoading();
+      
+      if (!data) {
+        console.error('❌ ERROR: Data is null or undefined');
+        showToast('ບໍ່ສາມາດໂຫລດຂໍ້ມູນໄດ້', 'error');
+        return;
+      }
+      
+      if (!data.provinces || !Array.isArray(data.provinces)) {
+        console.error('❌ ERROR: Invalid data structure');
+        showToast('ຂໍ້ມູນບໍ່ຖືກຕ້ອງ', 'error');
+        return;
+      }
+      
+      if (data.provinces.length === 0) {
+        console.error('❌ ERROR: No provinces data');
+        showToast('ບໍ່ມີຂໍ້ມູນແຂວງໃນລະບົບ', 'error');
+        return;
+      }
+      
+      console.log('✅ Provinces:', data.provinces.length);
+      console.log('✅ Users:', data.users ? data.users.length : 0);
+      
+      loginData = data;
+      
+      // ✅ บันทึกลง IndexedDB (async)
+      saveToIndexedDB('loginData', { id: 'loginData', data: data })
+        .then(function() {
+          console.log('✅ Login data saved to IndexedDB');
+        })
+        .catch(function(err) {
+          console.error('⚠️ Failed to save to IndexedDB:', err);
+        });
+      
+      // ✅ Populate form
+      populateLoginForm();
+      
+      showToast('ໂຫລດຂໍ້ມູນສຳເລັດ (' + timeTaken + 's)', 'success');
+    })
+    .withFailureHandler(function(error) {
+      clearTimeout(timeoutId);
+      
+      const endTime = new Date().getTime();
+      const timeTaken = ((endTime - startTime) / 1000).toFixed(2);
+      
+      console.error('❌ ERROR fetching login data:', error);
+      console.error('Time taken:', timeTaken + 's');
+      
+      hideLoading();
+      showToast('ເກີດຂໍ້ຜິດພາດ: ' + error.message, 'error');
+      
+      // ✅ ลองโหลดจาก IndexedDB
+      console.log('📦 Trying to load from IndexedDB...');
+      loadFromIndexedDB('loginData', 'loginData').then(function(data) {
+        if (data) {
+          console.log('✅ Loaded login data from IndexedDB');
+          loginData = data;
+          populateLoginForm();
+          showToast('ໂຫລດຈາກຂໍ້ມູນເກົ່າ (Offline)', 'success');
+        } else {
+          console.error('❌ No data in IndexedDB either');
+          showToast('ບໍ່ມີຂໍ້ມູນທັງໃນເຊີບເວີແລະ Offline', 'error');
+        }
+      });
+    })
+    .getLoginData();
+}
+// ✅ Retry mechanism สำหรับกรณีโหลดล้มเหลว
+function retryFetchLoginData(retryCount) {
+  retryCount = retryCount || 0;
+  const maxRetries = 3;
+  
+  if (retryCount >= maxRetries) {
+    console.error('❌ Max retries reached');
+    showToast('ບໍ່ສາມາດເຊື່ອມຕໍ່ເຊີບເວີໄດ້', 'error');
+    hideLoading();
+    return;
+  }
+  
+  console.log('🔄 Retry attempt: ' + (retryCount + 1) + '/' + maxRetries);
+  
+  const messageDiv = document.getElementById('loadingMessage');
+  if (messageDiv) {
+    messageDiv.textContent = '🔄 ລອງໃໝ່... ຄັ້ງທີ່ ' + (retryCount + 1);
+  }
+  
+  setTimeout(function() {
+    google.script.run
+      .withSuccessHandler(function(data) {
+        hideLoading();
+        if (data && data.provinces) {
+          loginData = data;
+          populateLoginForm();
+          showToast('ໂຫລດສຳເລັດ!', 'success');
+        } else {
+          retryFetchLoginData(retryCount + 1);
+        }
+      })
+      .withFailureHandler(function(error) {
+        console.error('Retry failed:', error);
+        retryFetchLoginData(retryCount + 1);
+      })
+      .getLoginData();
+  }, 2000 * (retryCount + 1)); // เพิ่มเวลารอทุกครั้ง
+}
+
+    function fetchOptionsData() {
+      google.script.run
+        .withSuccessHandler(function(data) {
+          optionsData = data;
+          saveToIndexedDB('optionsData', { id: 'optionsData', data: data });
+        })
+        .withFailureHandler(function(error) {
+          console.error('Error fetching options:', error);
+        })
+        .getOptionsData();
+    }
+function fetchHouseholdsData() {
+  console.log('>>> Fetching households and mobile data from server...');
+  console.log('>>> Using villageSheetId:', villageSheetId);
+  
+  if (!villageSheetId) {
+    console.error('ERROR: villageSheetId is null or undefined!');
+    showToast('ບໍ່ມີ Sheet ID ຂອງບ້ານ', 'error');
+    hideLoading();
+    return;
+  }
+  
+  // แสดง Loading พร้อมข้อความ
+  showLoading(0, 'ກຳລັງດຶງຂໍ້ມູນທັງໝົດ...');
+  
+  // ===== ດຶງຂໍ້ມູນຄອບຄົວ (Household) =====
+  google.script.run
+    .withSuccessHandler(function(data) {
+      console.log('>>> Households data received:', data);
+      console.log('>>> Data type:', typeof data);
+      console.log('>>> Is array:', Array.isArray(data));
+      
+      // ตรวจสอบว่า data เป็น null หรือ undefined
+      if (!data) {
+        console.error('>>> ERROR: Data is null or undefined');
+        householdsData = [];
+      } else if (!Array.isArray(data)) {
+        console.error('>>> ERROR: Data is not an array, type:', typeof data);
+        householdsData = [];
+      } else {
+        console.log('>>> Households count:', data.length);
+        
+        if (data.length > 0) {
+          console.log('>>> First household:', data[0]);
+        }
+        
+        // เก็บข้อมูลใน global variable
+        householdsData = data;
+        
+        // บันทึกลง IndexedDB
+        if (data.length > 0) {
+          data.forEach(household => {
+            saveToIndexedDB('households', household)
+              .catch(err => console.error('Failed to save household:', err));
+          });
+          console.log('>>> Households data saved to IndexedDB');
+        }
+      }
+      
+      // ✅ หลังโหลด Household เสร็จ → โหลด Mobile ต่อ
+      loadMobileDataAfterHousehold();
+    })
+    .withFailureHandler(function(error) {
+      console.error('>>> ERROR fetching households:', error);
+      console.error('>>> Error message:', error.message);
+      
+      householdsData = [];
+      
+      // ลองโหลดจาก IndexedDB
+      loadFromIndexedDB('households', null).then(data => {
+        if (data && data.length > 0) {
+          console.log('>>> Loaded households from IndexedDB:', data.length);
+          householdsData = data;
+        } else {
+          console.log('>>> No households in IndexedDB');
+        }
+        
+        // ✅ แม้ล้มเหลว ก็ยังต้องโหลด Mobile ต่อ
+        loadMobileDataAfterHousehold();
+      });
+    })
+    .getHouseholdData(villageSheetId);
+  
+  // ===== ฟังก์ชันโหลด Mobile หลัง Household =====
+  function loadMobileDataAfterHousehold() {
+    console.log('>>> Now fetching mobile data...');
+    
+    google.script.run
+      .withSuccessHandler(function(data) {
+        console.log('>>> Mobile data received:', data);
+        console.log('>>> Mobile count:', data ? data.length : 0);
+        
+        if (!data) {
+          console.error('>>> ERROR: Mobile data is null');
+          mobilesData = [];
+        } else if (!Array.isArray(data)) {
+          console.error('>>> ERROR: Mobile data is not array');
+          mobilesData = [];
+        } else {
+          mobilesData = data;
+          
+          // บันทึกลง IndexedDB
+          if (data.length > 0) {
+            data.forEach(mobile => {
+              saveToIndexedDB('mobiles', mobile)
+                .catch(err => console.error('Failed to save mobile:', err));
+            });
+            console.log('>>> Mobile data saved to IndexedDB');
+          }
+        }
+        
+        // ✅ โหลดเสร็จทั้งคู่แล้ว → แสดงผล
+        finishLoadingAllData();
+      })
+      .withFailureHandler(function(error) {
+        console.error('>>> ERROR fetching mobile:', error);
+        mobilesData = [];
+        
+        // ลองโหลดจาก IndexedDB
+        loadFromIndexedDB('mobiles', null).then(data => {
+          if (data && data.length > 0) {
+            console.log('>>> Loaded mobile from IndexedDB:', data.length);
+            mobilesData = data;
+          }
+          
+          // ✅ โหลดเสร็จทั้งคู่แล้ว → แสดงผล
+          finishLoadingAllData();
+        });
+      })
+      .getMobileData(villageSheetId);
+  }
+  
+  // ===== ฟังก์ชันแสดงผลหลังโหลดเสร็จ =====
+function finishLoadingAllData() {
+    console.log('>>> All data loaded!');
+    console.log('>>> Households:', householdsData.length);
+    console.log('>>> Mobiles:', mobilesData.length);
+    
+    initialDataLoaded = true; // ✅ ใหม่: ทำเครื่องหมายว่าโหลดข้อมูลรอบแรกเสร็จแล้ว
+    
+    // นับจำนวนคนทั้งหมด
+    let totalPeople = householdsData.length; // หัวครอบครัว
+    householdsData.forEach(household => {
+      if (household.members && Array.isArray(household.members)) {
+        totalPeople += household.members.length;
+      }
+    });
+    totalPeople += mobilesData.length; // ประชากรเคลื่อนที่
+    
+    console.log('>>> Total people (all):', totalPeople);
+    
+    // แสดง Counter Animation
+    const counterDiv = document.getElementById('loadingCounter');
+    const messageDiv = document.getElementById('loadingMessage');
+    
+    if (counterDiv && messageDiv && totalPeople > 0) {
+      messageDiv.textContent = `ກຳລັງໂຫລດ ${totalPeople} ຄົນ...`;
+      
+      let current = 0;
+      const duration = 1500; // 1.5 วินาที
+      const increment = totalPeople / (duration / 30);
+      
+      const timer = setInterval(() => {
+        current += increment;
+        if (current >= totalPeople) {
+          current = totalPeople;
+          clearInterval(timer);
+          
+          // เปลี่ยนข้อความเป็น "ສຳເລັດ"
+          messageDiv.textContent = `✅ ໂຫລດສຳເລັດ ${totalPeople} ຄົນ`;
+          
+          // รอ 0.5 วินาที แล้วค่อยซ่อน loading
+          setTimeout(() => {
+            hideLoading();
+          }, 500);
+        }
+        counterDiv.textContent = Math.floor(current);
+      }, 30);
+    } else {
+      // ถ้าไม่มีข้อมูล ซ่อน loading ทันที
+      hideLoading();
+    }
+    
+    // ถ้าอยู่ในหน้า population ให้โหลดตาราง
+    if (document.getElementById('dataContainer').classList.contains('active')) {
+      console.log('>>> Reloading population data table...');
+      loadPopulationData();
+    }
+    
+    // ✅ ถ้าอยู่ในหน้า mobile ให้โหลดตาราง
+    if (document.getElementById('mobileContainer') && 
+        document.getElementById('mobileContainer').classList.contains('active')) {
+      console.log('>>> Reloading mobile data table...');
+      loadMobileData();
+    }
+    
+    // แสดง Toast สำเร็จ
+    if (householdsData.length > 0 || mobilesData.length > 0) {
+      showToast(
+        `ໂຫລດຂໍ້ມູນສຳເລັດ: ${householdsData.length} ຄອບຄົວ, ${mobilesData.length} ປະຊາກອນເຄື່ອນທີ່`, 
+        'success'
+      );
+    } else {
+      showToast('ບໍ່ມີຂໍ້ມູນໃນບ້ານນີ້', 'error');
+      
+      // แสดงตารางว่าง
+      const tbody = document.getElementById('dataTableBody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" style="text-align: center; padding: 40px;">
+              <div style="font-size: 48px; margin-bottom: 10px;">⚠️</div>
+              <div style="margin-bottom: 15px; color: #f44336;">ບໍ່ມີຂໍ້ມູນໃນບ້ານນີ້</div>
+              <div style="margin-bottom: 15px; font-size: 14px; color: #666;">ກະລຸນາເພີ່ມຂໍ້ມູນ</div>
+              <button onclick="openHouseholdForm()" class="btn btn-primary">➕ ເພີ່ມຄອບຄົວ</button>
+            </td>
+          </tr>
+        `;
+      }
+    }
+  }
+}
+
+    // ===================================
+    // INDEXEDDB OPERATIONS
+    // ===================================
+    function saveToIndexedDB(storeName, data) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([storeName], 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.put(data);
+        
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    function loadFromIndexedDB(storeName, key) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([storeName], 'readonly');
+        const store = transaction.objectStore(storeName);
+        
+        if (key) {
+          const request = store.get(key);
+          request.onsuccess = () => resolve(request.result ? request.result.data : null);
+          request.onerror = () => reject(request.error);
+        } else {
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        }
+      });
+    }
+
+    function deleteFromIndexedDB(storeName, key) {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([storeName], 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.delete(key);
+        
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+function populateLoginForm() {
+  console.log('>>> Populating login form...');
+  
+  if (!loginData || !loginData.provinces || !Array.isArray(loginData.provinces) || loginData.provinces.length === 0) {
+    console.error('>>> ERROR: loginData invalid');
+    showToast('ຂໍ້ມູນບໍ່ສົມບູນ ກະລຸນາ Refresh ໜ້າເວັບ', 'error');
+    return;
+  }
+  
+  searchDropdownData.loginProvince = loginData.provinces;
+  
+  console.log('>>> Login form ready! Provinces:', loginData.provinces.length);
+}
+
+// ===== ฟังก์ชันใหม่: Searchable Dropdown =====
+function renderSearchDropdown(fieldId, items) {
+  const dropdown = document.getElementById(fieldId + 'Dropdown');
+  if (!dropdown) return;
+  dropdown.innerHTML = '';
+  if (!items || items.length === 0) {
+    dropdown.innerHTML = '<div class="searchable-dropdown-empty">ບໍ່ພົບຂໍ້ມູນ</div>';
+    return;
+  }
+  items.forEach(function(item) {
+    const div = document.createElement('div');
+    div.className = 'searchable-dropdown-item';
+    div.textContent = item;
+    div.onclick = function() { selectSearchDropdownItem(fieldId, item); };
+    dropdown.appendChild(div);
+  });
+}
+
+function openSearchDropdown(fieldId) {
+  const input = document.getElementById(fieldId);
+  if (input.disabled) return;
+  
+  document.querySelectorAll('.searchable-dropdown-list').forEach(function(el) {
+    if (el.id !== fieldId + 'Dropdown') el.classList.remove('active');
+  });
+  
+  renderSearchDropdown(fieldId, searchDropdownData[fieldId] || []);
+  document.getElementById(fieldId + 'Dropdown').classList.add('active');
+}
+
+function filterSearchDropdown(fieldId) {
+  const input = document.getElementById(fieldId);
+  const searchTerm = input.value.trim().toLowerCase();
+  const allItems = searchDropdownData[fieldId] || [];
+  const filtered = searchTerm ? allItems.filter(function(item) {
+    return item.toLowerCase().includes(searchTerm);
+  }) : allItems;
+  
+  renderSearchDropdown(fieldId, filtered);
+  document.getElementById(fieldId + 'Dropdown').classList.add('active');
+  
+  document.getElementById(fieldId + 'Value').value = '';
+}
+
+function selectSearchDropdownItem(fieldId, value) {
+  document.getElementById(fieldId).value = value;
+  document.getElementById(fieldId + 'Value').value = value;
+  document.getElementById(fieldId + 'Dropdown').classList.remove('active');
+  
+  if (fieldId === 'loginProvince') {
+    onLoginProvinceSelected(value);
+  } else if (fieldId === 'loginDistrict') {
+    onLoginDistrictSelected(value);
+  }
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.searchable-select-wrap')) {
+    document.querySelectorAll('.searchable-dropdown-list').forEach(function(el) {
+      el.classList.remove('active');
+    });
+  }
+}, { passive: true });
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.population-unit-filter-wrap')) {
+    const dropdown = document.getElementById('populationUnitDropdown');
+    if (dropdown) dropdown.style.display = 'none';
+  }
+}, { passive: true });
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#btnGpsUnitFilter') && !e.target.closest('#gpsUnitDropdown')) {
+    const gpsDropdown = document.getElementById('gpsUnitDropdown');
+    if (gpsDropdown) gpsDropdown.style.display = 'none';
+  }
+}, { passive: true });
+
+function onLoginProvinceSelected(province) {
+  const districtInput = document.getElementById('loginDistrict');
+  const villageInput = document.getElementById('loginVillage');
+  
+  districtInput.value = '';
+  document.getElementById('loginDistrictValue').value = '';
+  villageInput.value = '';
+  document.getElementById('loginVillageValue').value = '';
+  searchDropdownData.loginDistrict = [];
+  searchDropdownData.loginVillage = [];
+  
+  districtInput.disabled = true;
+  villageInput.disabled = true;
+  districtInput.placeholder = 'ເລືອກແຂວງກ່ອນ';
+  villageInput.placeholder = 'ເລືອກເມືອງກ່ອນ';
+  
+  if (province && loginData.districts[province]) {
+    districtInput.disabled = false;
+    districtInput.placeholder = 'ພິມຄົ້ນຫາ ຫຼື ກົດເພື່ອເລືອກ';
+    searchDropdownData.loginDistrict = loginData.districts[province];
+  }
+}
+
+function onLoginDistrictSelected(district) {
+  const province = document.getElementById('loginProvinceValue').value;
+  const villageInput = document.getElementById('loginVillage');
+  
+  villageInput.value = '';
+  document.getElementById('loginVillageValue').value = '';
+  searchDropdownData.loginVillage = [];
+  villageInput.disabled = true;
+  villageInput.placeholder = 'ເລືອກເມືອງກ່ອນ';
+  
+  if (province && district) {
+    const key = province + '|' + district;
+    if (loginData.villages[key]) {
+      villageInput.disabled = false;
+      villageInput.placeholder = 'ພິມຄົ້ນຫາ ຫຼື ກົດເພື່ອເລືອກ';
+      searchDropdownData.loginVillage = loginData.villages[key];
+    }
+  }
+}
+
+
+
+    function showMainApp() {
+      document.getElementById('loginModal').classList.remove('active');
+      document.getElementById('mainContainer').classList.add('active');
+      document.getElementById('userName').textContent = `👤 ${currentUser.village || currentUser.name}`;
+      document.getElementById('userLocation').textContent = `📍 ${currentUser.village}, ${currentUser.district}, ${currentUser.province}`;
+      
+      // เรียก fetchHouseholdsData ทันทีหลัง login สำเร็จ
+      console.log('✅ Login successful, fetching household data for:', villageSheetId);
+      showLoading();
+      fetchHouseholdsData();
+    }
+
+function logout() {
+      if (confirm('ທ່ານຕ້ອງການອອກຈາກລະບົບບໍ່?')) {
+        clearLoginSession(); // ✅ ລ້າง session ตอน logout
+        currentUser = null;
+        document.getElementById('loginModal').classList.add('active');
+        document.getElementById('mainContainer').classList.remove('active');
+        document.getElementById('loginPhone').value = '';
+       document.getElementById('loginProvince').value = '';
+        document.getElementById('loginProvinceValue').value = '';
+        document.getElementById('loginDistrict').value = '';
+        document.getElementById('loginDistrictValue').value = '';
+        document.getElementById('loginDistrict').disabled = true;
+        document.getElementById('loginDistrict').placeholder = 'ເລືອກແຂວງກ່ອນ';
+        document.getElementById('loginVillage').value = '';
+        document.getElementById('loginVillageValue').value = '';
+        document.getElementById('loginVillage').disabled = true;
+        document.getElementById('loginVillage').placeholder = 'ເລືອກເມືອງກ່ອນ';
+        searchDropdownData.loginDistrict = [];
+        searchDropdownData.loginVillage = [];
+        document.getElementById('loginPassword').value = '';
+        loginFlowSelectedUser = null;
+        goToLoginStep(1);
+        backToMenu();
+        showToast('ອອກຈາກລະບົບສຳເລັດ', 'success');
+      }
+    }
+
+    // ===================================
+    // IDLE TIMER
+    // ===================================
+    function resetIdleTimer() {
+      clearTimeout(idleTimer);
+      clearTimeout(idleWarningTimer);
+      document.getElementById('idleWarning').classList.remove('active');
+      
+      idleWarningTimer = setTimeout(showIdleWarning, 115 * 60 * 1000);
+      idleTimer = setTimeout(autoLogout, 120 * 60 * 1000);
+    }
+
+    function showIdleWarning() {
+      document.getElementById('idleWarning').classList.add('active');
+      let timeLeft = 5;
+      
+      const countdown = setInterval(() => {
+        timeLeft--;
+        document.getElementById('idleTimer').textContent = timeLeft;
+        
+        if (timeLeft <= 0) {
+          clearInterval(countdown);
+        }
+      }, 60 * 1000);
+    }
+
+  function autoLogout() {
+      clearLoginSession(); // ✅ ล้าง session ตอนถูกเตะออกอัตโนมัติ
+      showToast('ອອກຈາກລະບົບອັດຕະໂນມັດເນື່ອງຈາກບໍ່ມີການໃຊ້ງານ', 'error');
+      setTimeout(() => {
+        currentUser = null;
+        document.getElementById('loginModal').classList.add('active');
+        document.getElementById('mainContainer').classList.remove('active');
+        document.getElementById('loginForm').reset();
+        backToMenu();
+      }, 2000);
+    }
+
+function openPopulation() {
+  console.log('>>> Opening population page...');
+  console.log('>>> villageSheetId:', villageSheetId);
+  
+  document.getElementById('menu').style.display = 'none';
+  document.getElementById('dataContainer').classList.add('active');
+  
+  // ✅ FIX: ถ้าโหลดข้อมูลไว้แล้วตั้งแต่ตอน Login ให้ใช้ของเดิมเลย ไม่ต้องโหลดซ้ำ
+  if (initialDataLoaded) {
+    console.log('>>> Data already loaded, using cached data (no reload)');
+    loadPopulationData();
+    return;
+  }
+  
+  // ถ้ายังไม่เคยโหลด (กรณีข้อมูลตอน login ล้มเหลว) ค่อยโหลดใหม่
+  console.log('>>> No cached data yet, fetching households for village: ' + villageSheetId);
+  showLoading();
+  fetchHouseholdsData();
+}
+
+    function backToMenu() {
+      document.getElementById('menu').style.display = 'grid';
+      document.getElementById('dataContainer').classList.remove('active');
+    }
+function naturalUnitCompare(a, b) {
+  const numA = parseFloat(String(a).replace(/[^\d.]/g, ''));
+  const numB = parseFloat(String(b).replace(/[^\d.]/g, ''));
+  const hasNumA = !isNaN(numA);
+  const hasNumB = !isNaN(numB);
+  if (hasNumA && hasNumB && numA !== numB) return numA - numB;
+  return String(a).localeCompare(String(b), 'lo');
+}
+
+function getSortedUniqueUnits() {
+  const unitSet = new Set();
+  householdsData.forEach(h => { if (h.unit) unitSet.add(h.unit); });
+  return Array.from(unitSet).sort(naturalUnitCompare);
+}
+
+function getUnitColor(unit, sortedUnits) {
+  const idx = sortedUnits.indexOf(unit);
+  const safeIdx = idx === -1 ? 0 : idx % UNIT_COLOR_PALETTE.length;
+  return UNIT_COLOR_PALETTE[safeIdx];
+}
+
+function populatePopulationUnitFilter() {
+  const dropdown = document.getElementById('populationUnitDropdown');
+  if (!dropdown) return;
+
+  dropdown.innerHTML = '';
+  const sortedUnits = getSortedUniqueUnits();
+
+  if (sortedUnits.length === 0) {
+    dropdown.innerHTML = '<div style="color:#999; padding:5px; text-align:center;">ບໍ່ມີຂໍ້ມູນໜ່ວຍ</div>';
+    return;
+  }
+
+  sortedUnits.forEach(unit => {
+    const label = document.createElement('label');
+    const checked = populationUnitFilter.indexOf(unit) !== -1 ? 'checked' : '';
+    label.innerHTML = `<input type="checkbox" value="${unit}" ${checked} onchange="togglePopulationUnit('${unit}', this.checked)"> <span>${unit}</span>`;
+    dropdown.appendChild(label);
+  });
+}
+
+function togglePopulationUnitDropdown() {
+  const dropdown = document.getElementById('populationUnitDropdown');
+  if (!dropdown) return;
+  dropdown.style.display = (dropdown.style.display === 'none' || !dropdown.style.display) ? 'block' : 'none';
+}
+
+function togglePopulationUnit(unit, checked) {
+  if (checked) {
+    if (populationUnitFilter.indexOf(unit) === -1) populationUnitFilter.push(unit);
+  } else {
+    populationUnitFilter = populationUnitFilter.filter(u => u !== unit);
+  }
+  const badge = document.getElementById('populationUnitCount');
+  if (badge) badge.textContent = populationUnitFilter.length;
+  currentPage = 1;
+  loadPopulationData();
+}
+
+function clearPopulationUnitFilter() {
+  populationUnitFilter = [];
+  const badge = document.getElementById('populationUnitCount');
+  if (badge) badge.textContent = '0';
+  populatePopulationUnitFilter();
+  currentPage = 1;
+  loadPopulationData();
+  showToast('ລ້າງຕົວກອງໜ່ວຍສຳເລັດ', 'success');
+}
+
+function changePopulationSort(mode) {
+  populationSortMode = mode;
+  currentPage = 1;
+  loadPopulationData();
+}
+
+function getSortedFilteredHouseholds() {
+  let list = householdsData.slice();
+
+  if (populationUnitFilter.length > 0) {
+    list = list.filter(h => populationUnitFilter.indexOf(h.unit) !== -1);
+  }
+
+  switch (populationSortMode) {
+    case 'unitDesc':
+      list.sort((a, b) => naturalUnitCompare(b.unit || '', a.unit || ''));
+      break;
+    case 'nameAsc':
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'lo'));
+      break;
+    case 'nameDesc':
+      list.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'lo'));
+      break;
+    case 'memberCountDesc':
+      list.sort((a, b) => ((b.members || []).length) - ((a.members || []).length));
+      break;
+    case 'memberCountAsc':
+      list.sort((a, b) => ((a.members || []).length) - ((b.members || []).length));
+      break;
+    case 'unitAsc':
+    default:
+      list.sort((a, b) => naturalUnitCompare(a.unit || '', b.unit || ''));
+      break;
+  }
+
+  return list;
+}
+
+function loadPopulationData() {
+  console.log('>>> Loading population data to table...');
+  console.log('>>> householdsData length:', householdsData.length);
+  
+  const tbody = document.getElementById('dataTableBody');
+  tbody.innerHTML = '';
+  
+  if (householdsData.length === 0) {
+    console.log('>>> No households data to display');
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; padding: 40px;">
+          <div style="font-size: 48px; margin-bottom: 10px;">📋</div>
+          <div style="margin-bottom: 15px;">ຍັງບໍ່ມີຂໍ້ມູນຄອບຄົວ</div>
+          <button onclick="fetchHouseholdsData()" class="btn btn-primary">🔄 ໂຫລດຂໍ້ມູນຈາກເຊີບເວີ</button>
+        </td>
+      </tr>
+    `;
+    document.getElementById('pagination').style.display = 'none';
+    return;
+  }
+
+  populatePopulationUnitFilter();
+  const badge = document.getElementById('populationUnitCount');
+  if (badge) badge.textContent = populationUnitFilter.length;
+
+  const sortedHouseholds = getSortedFilteredHouseholds();
+  const sortedUnits = getSortedUniqueUnits();
+
+  if (sortedHouseholds.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; padding: 40px;">
+          <div style="font-size: 48px; margin-bottom: 10px;">🔍</div>
+          <div>ບໍ່ພົບຂໍ້ມູນຕາມຕົວກອງທີ່ເລືອກ</div>
+        </td>
+      </tr>
+    `;
+    document.getElementById('pagination').style.display = 'none';
+    return;
+  }
+  
+  // Create all rows first (grouped by unit with card-style coloring)
+  const allRows = [];
+  let previousUnit = null;
+
+  sortedHouseholds.forEach((household) => {
+    const unitLabel = household.unit || 'ບໍ່ລະບຸໜ່ວຍ';
+    const color = getUnitColor(household.unit, sortedUnits);
+
+    const isGroupedByUnit = (populationSortMode === 'unitAsc' || populationSortMode === 'unitDesc');
+    if (isGroupedByUnit && unitLabel !== previousUnit) {
+      const groupCount = sortedHouseholds.filter(h => (h.unit || 'ບໍ່ລະບຸໜ່ວຍ') === unitLabel).length;
+      const headerRow = document.createElement('tr');
+      headerRow.className = 'unit-group-header-row';
+      headerRow.innerHTML = `<td colspan="7" style="background:${color.header};">📍 ໜ່ວຍ: ${unitLabel} (${groupCount} ຄອບຄົວ)</td>`;
+      allRows.push(headerRow);
+      previousUnit = unitLabel;
+    }
+
+  // Household header row
+    const headRow = createTableRow({
+      photo: getHouseholdDisplayPhoto(household),
+      code: household.householdCode,
+      name: household.name,
+      gender: '-',
+      relationship: 'ຫົວໜ້າຄອບຄົວ',
+      unit: household.unit,
+      phone: household.phone,
+      type: 'household',
+      householdCode: household.householdCode,
+      familySummary: getFamilySummaryText(household)
+    }, color);
+    allRows.push(headRow);
+    
+    // Member rows (เรียงลำดับ: หัวหน้าครอบครัว > ผัว/เมีย > ลูก > ลูกเขย/ลูกใภ้ > หลาน > อื่นๆ)
+    if (household.members && household.members.length > 0) {
+      const sortedMembers = sortMembersByRelationship(household.members);
+      sortedMembers.forEach(member => {
+        const memberRow = createTableRow({
+          photo: member.photo,
+          code: member.memberCode,
+          name: member.name,
+          gender: member.gender,
+          relationship: member.relationship,
+          unit: member.unit,
+          phone: member.phone,
+          type: 'member',
+          householdCode: household.householdCode,
+          memberCode: member.memberCode
+        }, color);
+        allRows.push(memberRow);
+      });
+    }
+  });
+  
+  totalRows = allRows.length;
+  const totalPages = Math.ceil(totalRows / rowsPerPage);
+  
+  // Display rows for current page
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
+  
+  for (let i = startIndex; i < endIndex; i++) {
+    tbody.appendChild(allRows[i]);
+  }
+  
+  // Update pagination UI
+  updatePaginationUI(totalPages);
+  
+  console.log('>>> Displayed rows ' + (startIndex + 1) + '-' + endIndex + ' of ' + totalRows);
+  hideLoading();
+}
+
+function updatePaginationUI(totalPages) {
+  document.getElementById('currentPage').textContent = currentPage;
+  document.getElementById('totalPages').textContent = totalPages;
+  
+  document.getElementById('btnFirst').disabled = currentPage === 1;
+  document.getElementById('btnPrev').disabled = currentPage === 1;
+  document.getElementById('btnNext').disabled = currentPage === totalPages;
+  document.getElementById('btnLast').disabled = currentPage === totalPages;
+  
+  document.getElementById('pagination').style.display = totalPages > 1 ? 'flex' : 'none';
+}
+
+function changePage(direction) {
+  const totalPages = Math.ceil(totalRows / rowsPerPage);
+  
+  switch(direction) {
+    case 'first':
+      currentPage = 1;
+      break;
+    case 'prev':
+      if (currentPage > 1) currentPage--;
+      break;
+    case 'next':
+      if (currentPage < totalPages) currentPage++;
+      break;
+    case 'last':
+      currentPage = totalPages;
+      break;
+  }
+  
+  loadPopulationData();
+  
+  // Scroll to top of table
+  document.getElementById('dataTable').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ===================================
+// Helper: Get Family Summary Badge Text เช่น (4 ຄົນ / ຍິງ 2 ຄົນ)
+// ===================================
+function getFamilySummaryText(household) {
+  const members = household.members || [];
+  const total = members.length;
+  const femaleCount = members.filter(m => m.gender === 'ຍິງ').length;
+  return '(' + total + ' ຄົນ / ຍິງ ' + femaleCount + ' ຄົນ)';
+}
+// ✅ ใหม่: หารูปหัวหน้าครอบครัวมาแสดงในตารางหลัก
+// ลำดับการหา: 1) household.photo ก่อน 2) ถ้าไม่มี ให้หาจากสมาชิกที่ relationship = "ຫົວໜ້າຄອບຄົວ"
+function getHouseholdDisplayPhoto(household) {
+  if (household.photo) return household.photo;
+
+  if (household.members && household.members.length > 0) {
+    const headMember = household.members.find(function(m) {
+      return m.relationship && m.relationship.trim() === 'ຫົວໜ້າຄອບຄົວ';
+    });
+    if (headMember && headMember.photo) return headMember.photo;
+  }
+
+  return '';
+}
+function createTableRow(data, color) {
+  const tr = document.createElement('tr');
+  
+  if (color) {
+    tr.style.background = color.bg;
+    tr.style.borderLeft = '5px solid ' + color.border;
+  }
+  
+  const photoUrl = data.photo || '';
+  const photoHTML = photoUrl ? 
+    `<img src="${photoUrl}" class="profile-img" alt="Photo" onclick="showImagePreview('${photoUrl}')" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+     <div class="profile-img" style="font-size: 24px; display: none;">❓</div>` : 
+    '<div class="profile-img" style="font-size: 24px; display: flex; align-items: center; justify-content: center;">❓</div>';
+  // WhatsApp button
+  const whatsappBtn = data.phone ? 
+    `<a href="https://wa.me/${data.phone.replace(/\D/g, '')}" target="_blank" class="btn-whatsapp" title="${data.phone}">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+      </svg>
+    </a>` : 
+    '<span style="color: #999;">-</span>';
+  
+  // Action buttons based on type
+  let actionButtons = '';
+  if (data.type === 'member') {
+    actionButtons = `
+      <button class="btn-edit" onclick="editMemberOnly('${data.memberCode}')" title="ແກ້ໄຂບຸກຄົນ">
+        ✏️ ແກ້ບຸກຄົນ
+      </button>
+      <button class="btn-delete" onclick="showDeleteModal('member', '${data.memberCode}')" title="ລົບຄົນດຽວ">
+        🗑️ ລົບຄົນດຽວ
+      </button>
+      <button class="btn-edit-family" onclick="editHousehold('${data.householdCode}')" title="ແກ້ໄຂຄອບຄົວ">
+        👨‍👩‍👧 ແກ້ຄອບຄົວ
+      </button>
+      <button class="btn-delete-family" onclick="showDeleteModal('household', '${data.householdCode}')" title="ລົບຄອບຄົວ">
+        🗑️❌ ລົບຄອບຄົວ
+      </button>
+    `;
+  } else {
+    actionButtons = `
+      <button class="btn-edit-family" onclick="editHousehold('${data.householdCode}')" title="ແກ້ໄຂຄອບຄົວ">
+        👨‍👩‍👧 ແກ້ໄຂຄອບຄົວ
+      </button>
+      <button class="btn-delete-family" onclick="showDeleteModal('household', '${data.householdCode}')" title="ລົບຄອບຄົວ">
+        🗑️❌ ລົບຄອບຄົວ
+      </button>
+    `;
+  }
+  
+  tr.innerHTML = `
+    <td>${photoHTML}</td>
+    <td><strong>${data.name}</strong>${data.familySummary ? ' <span class="family-summary-badge">' + data.familySummary + '</span>' : ''}</td>
+    <td>${data.gender || '-'}</td>
+    <td>${data.relationship || '-'}</td>
+    <td>${data.unit || '-'}</td>
+    <td style="text-align: center;">${whatsappBtn}</td>
+    <td>
+      <div class="action-buttons">
+        ${actionButtons}
+      </div>
+    </td>
+  `;
+  
+  return tr;
+}
+function searchData() {
+  const searchTerm = document.getElementById('searchInput').value.trim();
+  performLocalHouseholdSearch(searchTerm);
+}
+
+function performLocalHouseholdSearch(searchTerm) {
+  if (!searchTerm) {
+    currentPage = 1;
+    loadPopulationData();
+    return;
+  }
+  
+  const searchLower = searchTerm.toLowerCase();
+  const results = [];
+  
+  householdsData.forEach(household => {
+    let match =
+      (household.name && household.name.toLowerCase().includes(searchLower)) ||
+      (household.phone && household.phone.includes(searchTerm)) ||
+      (household.householdCode && household.householdCode.includes(searchTerm)) ||
+      (household.houseNumber && household.houseNumber.toLowerCase().includes(searchLower));
+    
+    if (!match && household.members && household.members.length > 0) {
+      match = household.members.some(m =>
+        (m.name && m.name.toLowerCase().includes(searchLower)) ||
+        (m.phone && m.phone.includes(searchTerm))
+      );
+    }
+    
+    if (match) {
+      results.push(household);
+    }
+  });
+  
+  if (results.length === 0) {
+    const tbody = document.getElementById('dataTableBody');
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; padding: 40px;">
+          <div style="font-size: 48px; margin-bottom: 10px;">🔍</div>
+          <div>ບໍ່ພົບຂໍ້ມູນທີ່ຄົ້ນຫາ: "${searchTerm}"</div>
+          <button onclick="clearSearch()" class="btn btn-primary" style="margin-top: 15px;">
+            ❌ ລ້າງການຄົ້ນຫາ
+          </button>
+        </td>
+      </tr>
+    `;
+    document.getElementById('pagination').style.display = 'none';
+    return;
+  }
+  
+  displaySearchResults(results, searchTerm);
+}
+
+function displaySearchResults(results, searchTerm) {
+  const tbody = document.getElementById('dataTableBody');
+  tbody.innerHTML = '';
+  
+  // แสดงข้อความผลการค้นหา
+  const headerRow = document.createElement('tr');
+  headerRow.innerHTML = `
+    <td colspan="7" style="background: #fff3cd; padding: 15px; border-left: 5px solid #ffc107;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <strong>🔍 ຜົນການຄົ້ນຫາ: "${searchTerm}"</strong> - 
+          ພົບ <strong style="color: #667eea;">${results.length}</strong> ຄອບຄົວ
+        </div>
+        <button onclick="clearSearch()" class="btn btn-secondary" style="padding: 5px 15px;">
+          ❌ ລ້າງການຄົ້ນຫາ
+        </button>
+      </div>
+    </td>
+  `;
+  tbody.appendChild(headerRow);
+  
+  // แสดงผลลัพธ์
+  results.forEach(household => {
+    // ดึงข้อมูลครอบครัวเต็มจาก householdsData
+    const fullHousehold = householdsData.find(h => h.householdCode === household.householdCode);
+    
+  if (fullHousehold) {
+  // แสดงหัวครอบครัว
+      const headRow = createTableRow({
+        photo: getHouseholdDisplayPhoto(fullHousehold),
+        code: fullHousehold.householdCode,
+        name: fullHousehold.name,
+        gender: '-',
+        relationship: 'ຫົວໜ້າຄອບຄົວ',
+        unit: fullHousehold.unit,
+        phone: fullHousehold.phone,
+        type: 'household',
+        householdCode: fullHousehold.householdCode,
+        familySummary: getFamilySummaryText(fullHousehold)
+      });
+      tbody.appendChild(headRow);
+      
+      // แสดงสมาชิก (เรียงลำดับตามความสำคัญ)
+      if (fullHousehold.members && fullHousehold.members.length > 0) {
+        const sortedMembers = sortMembersByRelationship(fullHousehold.members);
+        sortedMembers.forEach(member => {
+          const memberRow = createTableRow({
+            photo: member.photo,
+            code: member.memberCode,
+            name: member.name,
+            gender: member.gender,
+            relationship: member.relationship,
+            unit: member.unit,
+            phone: member.phone,
+            type: 'member',
+            householdCode: fullHousehold.householdCode,
+            memberCode: member.memberCode
+          });
+          tbody.appendChild(memberRow);
+        });
+      }
+    }
+  });
+  
+  // ซ่อน pagination เมื่อค้นหา
+  document.getElementById('pagination').style.display = 'none';
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  currentPage = 1;
+  loadPopulationData();
+  showToast('ລ້າງການຄົ້ນຫາສຳເລັດ', 'success');
+}
+
+    function openHouseholdForm() {
+  document.getElementById('formTitle').textContent = '➕ ເພີ່ມຄອບຄົວໃໝ່';
+  document.getElementById('householdForm').reset();
+  document.getElementById('householdCode').value = '';
+  document.getElementById('membersContainer').innerHTML = '';
+  document.getElementById('householdPhotoPreview').innerHTML = '<div class="placeholder">❓</div>';
+  memberCounter = 0;
+  
+  if (currentUser) {
+    document.getElementById('village').value = currentUser.village;
+    document.getElementById('district').value = currentUser.district;
+    document.getElementById('province').value = currentUser.province;
+  }
+  
+  // Enable all household fields
+  document.getElementById('householdName').readOnly = false;
+  document.getElementById('householdPhone').readOnly = false;
+  document.getElementById('houseNumber').readOnly = false;
+  document.getElementById('roofCount').readOnly = false;
+  document.getElementById('householdCount').readOnly = false;
+  document.getElementById('familyCount').readOnly = false;
+  document.getElementById('registryBookCount').readOnly = false;
+  document.getElementById('registryNumber').readOnly = false;
+  document.getElementById('familyMemberCount').readOnly = true; // Auto-calculate
+  document.getElementById('pageCount').readOnly = true; // Auto-calculate
+  document.getElementById('unit').readOnly = false;
+  document.getElementById('rentalLocation').readOnly = false;
+  document.getElementById('monthlyIncome').readOnly = false;
+  document.getElementById('housePosition').readOnly = false;
+  document.getElementById('householdPhoto').disabled = false;
+  
+  populateRentalLocationList();
+  document.getElementById('householdFormModal').classList.add('active');
+}
+
+    function closeHouseholdForm() {
+      document.getElementById('householdFormModal').classList.remove('active');
+    }
+
+    function populateRentalLocationList() {
+      if (optionsData && optionsData.K) {
+        const datalist = document.getElementById('rentalLocationList');
+        datalist.innerHTML = '';
+        optionsData.K.forEach(option => {
+          const optionEl = document.createElement('option');
+          optionEl.value = option;
+          datalist.appendChild(optionEl);
+        });
+      }
+    }
+// ฟังก์ชันตรวจสอบก่อนเพิ่มสมาชิก
+function addMemberForm() {
+  // ตรวจสอบสมาชิกคนล่าสุดก่อน
+  if (memberCounter > 0) {
+    const lastMember = document.getElementById(`member-${memberCounter}`);
+    if (lastMember) {
+      const errors = validateMemberForm(lastMember);
+      
+      if (errors.length > 0) {
+        showValidationPopup(errors, memberCounter);
+        return;
+      }
+    }
+  }
+  
+  // เพิ่มสมาชิกใหม่
+  memberCounter++;
+  const container = document.getElementById('membersContainer');
+  
+  const memberDiv = document.createElement('div');
+  memberDiv.className = 'form-section member-section';
+  memberDiv.id = `member-${memberCounter}`;
+  memberDiv.innerHTML = getMemberFormHTML(memberCounter, null);
+  
+  container.appendChild(memberDiv);
+  populateDataLists();
+
+  // ✅ ใหม่: ถ้าเป็นสมาชิกคนที่ 1 (ฟอร์มแรกที่เพิ่ม) ให้ตั้งเป็น "ຫົວໜ້າຄອບຄົວ" อัตโนมัติ
+  // แล้วดึงชื่อ+เบอร์โทรจากฟอร์มหลักมาใส่ให้ทันที แบบเรียลไทม์
+  if (memberCounter === 1) {
+    const relInput = memberDiv.querySelector('.memberRelationship');
+    if (relInput) {
+      relInput.value = 'ຫົວໜ້າຄອບຄົວ';
+      handleRelationshipChange(relInput, memberCounter);
+    }
+    syncHouseholdHeadToMemberForm();
+    updateRelationshipOptions();
+  }
+
+  updateFamilyCounters();
+  
+// Initialize disease input listeners (เพิ่มใหม่)
+  setupDiseaseInputListeners(memberCounter);
+  
+  // Initialize disease tags if editing existing member
+  setTimeout(() => {
+    const diseaseTextarea = document.getElementById(`diseaseHidden${memberCounter}`);
+    if (diseaseTextarea && diseaseTextarea.value) {
+      initializeExistingDiseases(memberCounter, diseaseTextarea.value);
+    }
+  }, 100);
+  
+  // Scroll ไปยังสมาชิกใหม่
+  memberDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // เพิ่มบรรทัดนี้ในบรรทัดสุดท้าย
+  addRegistryChangeListeners();
+}
+
+// ฟังก์ชันตรวจสอบฟอร์มสมาชิก
+function validateMemberForm(memberDiv) {
+  const errors = [];
+  const requiredFields = memberDiv.querySelectorAll('.required-field');
+  
+  requiredFields.forEach(field => {
+    const value = field.value.trim();
+    const fieldName = field.getAttribute('data-field-name') || 'ຊ່ອງນີ້';
+    
+    if (!value) {
+      errors.push({
+        field: field,
+        fieldName: fieldName,
+        message: `${fieldName} ຍັງບໍ່ໄດ້ຕື່ມຂໍ້ມູນ`
+      });
+      
+      // เพิ่มคลาส invalid
+      field.classList.add('invalid');
+    } else {
+      // ลบคลาส invalid ถ้ามีค่า
+      field.classList.remove('invalid');
+    }
+  });
+  
+  return errors;
+}
+
+// ฟังก์ชันแสดง Popup ข้อผิดพลาด
+function showValidationPopup(errors, memberNumber) {
+  const popup = document.createElement('div');
+  popup.className = 'validation-error-popup';
+  
+  let errorListHTML = '';
+  errors.forEach((error, index) => {
+    errorListHTML += `
+      <div class="validation-error-item">
+        <span style="font-size: 1.2rem;">❌</span>
+        <span>${index + 1}. ${error.message}</span>
+      </div>
+    `;
+  });
+  
+  popup.innerHTML = `
+    <div class="validation-error-header">
+      <span>⚠️</span>
+      <span>ກະລຸນາຕື່ມຂໍ້ມູນໃຫ້ຄົບຖ້ວນ</span>
+    </div>
+    <p style="margin-bottom: 15px; color: #666;">
+      ສະມາຊິກຄົນທີ່ ${memberNumber} ຍັງຕື່ມຂໍ້ມູນບໍ່ຄົບ:
+    </p>
+    <div class="validation-error-list">
+      ${errorListHTML}
+    </div>
+    <button class="btn btn-primary" onclick="closeValidationPopup()" style="width: 100%;">
+      ✅ ຮັບທຮາບ
+    </button>
+  `;
+  
+  // เพิ่ม overlay
+  const overlay = document.createElement('div');
+  overlay.id = 'validationOverlay';
+  overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000;';
+  
+  document.body.appendChild(overlay);
+  document.body.appendChild(popup);
+  
+  // Scroll ไปยังช่องที่ผิด
+  setTimeout(() => {
+    if (errors.length > 0) {
+      errors[0].field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      errors[0].field.focus();
+    }
+  }, 500);
+}
+
+// ฟังก์ชันปิด Popup
+function closeValidationPopup() {
+  const popup = document.querySelector('.validation-error-popup');
+  const overlay = document.getElementById('validationOverlay');
+  
+  if (popup) popup.remove();
+  if (overlay) overlay.remove();
+}
+
+// ✅ ลบ animation invalid เมื่อ user กรอกข้อมูล (ป้องกัน Error)
+document.addEventListener('input', function(e) {
+  try {
+    if (e.target && e.target.classList && e.target.classList.contains('required-field')) {
+      if (e.target.value && e.target.value.trim()) {
+        e.target.classList.remove('invalid');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Input validation error:', error);
+  }
+}, { passive: true });
+
+function removeMemberForm(id) {
+  const memberDiv = document.getElementById(`member-${id}`);
+  if (memberDiv && confirm('ທ່ານຕ້ອງການລົບສະມາຊິກຄົນນີ້ບໍ່?')) {
+    memberDiv.remove();
+    
+    // ✅ ใหม่: จัดเรียงฟอร์มใหม่ตามสายพัวพันก่อน (ถ้าลบหัวหน้าครอบครัว เมีย/ผัวจะขึ้นมาเป็นฟอร์มที่ 1 อัตโนมัติ)
+    resortMemberFormsInDOM();
+    
+    // เรียงลำดับใหม่
+    reorderMembers();
+    
+    updateFamilyCounters();
+  addRegistryChangeListeners(); // เพิ่มบรรทัดนี้
+    
+    // อัพเดต relationship options (เพิ่มใหม่)
+    updateRelationshipOptions();
+
+  }
+}
+
+// ฟังก์ชันเรียงลำดับสมาชิกใหม่
+function reorderMembers() {
+  const container = document.getElementById('membersContainer');
+  const memberDivs = container.querySelectorAll('.member-section');
+  
+  memberDivs.forEach((div, index) => {
+    const newNumber = index + 1;
+    
+    // อัปเดตหัวข้อ
+    const heading = div.querySelector('h3');
+    if (heading) {
+      heading.setAttribute('data-member-number', newNumber); // เพิ่มบรรทัดนี้
+      const span = heading.querySelector('span');
+      if (span) {
+        span.textContent = `👤 ສະມາຊິກຄອບຄົວ ຄົນທີ່ ${newNumber}`;
+      }
+    }
+    
+    // อัปเดต ID ของ div
+    const oldId = div.id.match(/\d+/)[0];
+    div.id = `member-${newNumber}`;
+    
+    // อัปเດต ID ของ inputs และ buttons ภายใน
+    updateElementIds(div, oldId, newNumber);
+  });
+  
+  // อัปเดต memberCounter
+  memberCounter = memberDivs.length;
+  
+  // อัพเดต relationship options (เพิ่มใหม่)
+  updateRelationshipOptions();
+}
+
+// ฟังก์ชันช่วยอัปเดต IDs
+function updateElementIds(container, oldId, newId) {
+  // อัปเดต Photo Notice
+  const photoNotice = container.querySelector(`#photoNotice${oldId}`);
+  if (photoNotice) photoNotice.id = `photoNotice${newId}`;
+  
+  // อัปเดต Photo Wrapper
+  const photoWrapper = container.querySelector(`#photoWrapper${oldId}`);
+  if (photoWrapper) photoWrapper.id = `photoWrapper${newId}`;
+  
+  // อัปเดต Photo Input
+  const photoInput = container.querySelector(`#memberPhoto${oldId}`);
+  if (photoInput) {
+    photoInput.id = `memberPhoto${newId}`;
+    const photoUpload = container.querySelector('.photo-upload');
+    if (photoUpload) {
+      photoUpload.setAttribute('onclick', `document.getElementById('memberPhoto${newId}').click()`);
+    }
+  }
+  
+  // อัปเดต Photo Preview
+  const photoPreview = container.querySelector(`#memberPhotoPreview${oldId}`);
+  if (photoPreview) {
+    photoPreview.id = `memberPhotoPreview${newId}`;
+    if (photoInput) {
+      photoInput.setAttribute('onchange', `previewPhoto(this, 'memberPhotoPreview${newId}')`);
+    }
+  }
+  
+  // อัปเดต Delete Button
+  const deleteBtn = container.querySelector('.btn-delete-member');
+  if (deleteBtn) {
+    deleteBtn.setAttribute('onclick', `removeMemberForm(${newId})`);
+  }
+}
+
+ function getMemberFormHTML(counter, member) {
+  const birthParts = member && member.birthDate ? member.birthDate.split('/') : ['', '', ''];
+  const hasRelationship = member && member.relationship && member.relationship.trim() !== '';
+  
+  return `
+   <h3 data-member-number="${counter}">
+  <span style="margin-left: 35px;">👤 ສະມາຊິກຄອບຄົວ ຄົນທີ່ ${counter}</span>
+  <button type="button" class="btn-delete-member" onclick="removeMemberForm(${counter})">🗑️ ລົບ</button>
+</h3>
+    <input type="hidden" class="memberCode" value="${member ? member.memberCode || '' : ''}">
+    
+    <!-- Photo Upload Notice -->
+    <div class="photo-upload-notice ${hasRelationship ? 'hidden' : ''}" id="photoNotice${counter}">
+      <span class="icon">📸</span>
+      <span>ກະລຸນາເລືອກ "ສາຍພົວພັນຄອບຄົວ" ກ່ອນ ຈຶ່ງຈະສາມາດອັບໂຫລດຮູບພາບໄດ້</span>
+    </div>
+    
+    <!-- Photo Upload Wrapper -->
+    <div class="photo-upload-wrapper ${hasRelationship ? 'show' : ''}" id="photoWrapper${counter}">
+      <div class="form-group">
+        <div class="photo-upload" onclick="document.getElementById('memberPhoto${counter}').click()">
+          <div class="photo-preview" id="memberPhotoPreview${counter}">
+            ${member && member.photo ? `<img src="${member.photo}" alt="Photo">` : '<div class="placeholder">❓</div>'}
+          </div>
+          <p>📷 ອັບໂຫລດ/ຖ່າຍຮູບ</p>
+          <input type="file" id="memberPhoto${counter}" accept="image/*" style="display: none" onchange="previewPhoto(this, 'memberPhotoPreview${counter}')">
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 1: ຊື່, ເພດ, ວັນເດືອນປີເກີດ -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>ຊື່ ແລະ ນາມສະກຸນ <span style="color: red;">*</span></label>
+        <input type="text" class="memberName required-field" value="${member ? member.name || '' : ''}" data-field-name="ຊື່ ແລະ ນາມສະກຸນ">
+      </div>
+      <div class="form-group">
+        <label>ເພດ <span style="color: red;">*</span></label>
+        <input type="text" class="memberGender required-field" value="${member ? member.gender || '' : ''}" list="genderList" data-field-name="ເພດ">
+      </div>
+      <div class="form-group">
+        <label>ວັນເດືອນປີເກີດ <span style="color: red;">*</span></label>
+     <div class="date-inputs">
+  <input type="number" class="birthDay required-field" value="${birthParts[0]}" placeholder="ວັນ" min="1" max="31" data-field-name="ວັນເກີດ">
+  <span>/</span>
+  <input type="number" class="birthMonth required-field" value="${birthParts[1]}" placeholder="ເດືອນ" min="1" max="12" data-field-name="ເດືອນເກີດ">
+  <span>/</span>
+  <input type="number" class="birthYear required-field" value="${birthParts[2]}" placeholder="ປີ ຄ.ສ." min="1900" max="2600" data-field-name="ປີເກີດ">
+</div>
+      </div>
+    </div>
+
+    <!-- Row 2: ສາຍພົວພັນ, ອາຊີບ, ຊົນເຜົ່າ -->
+    <div class="form-row">
+     <div class="form-group">
+  <label>ສາຍພົວພັນຄອບຄົວ <span style="color: red;">*</span></label>
+  <input type="text" 
+         class="memberRelationship required-field" 
+         value="${member ? member.relationship || '' : ''}" 
+         list="relationshipList" 
+         onchange="handleRelationshipChange(this, ${counter}); handleRelationshipChange_ClearPhoto(${counter})" 
+         oninput="handleRelationshipChange(this, ${counter}); handleRelationshipChange_ClearPhoto(${counter})"
+         data-field-name="ສາຍພົວພັນຄອບຄົວ">
+</div>
+      <div class="form-group">
+        <label>ອາຊີບ <span style="color: red;">*</span></label>
+        <input type="text" class="memberOccupation required-field" value="${member ? member.occupation || '' : ''}" list="occupationList" data-field-name="ອາຊີບ">
+      </div>
+      <div class="form-group">
+        <label>ຊົນເຜົ່າ <span style="color: red;">*</span></label>
+        <input type="text" class="memberEthnicity required-field" value="${member ? member.ethnicity || '' : ''}" list="ethnicityList" data-field-name="ຊົນເຜົ່າ">
+      </div>
+    </div>
+
+    <!-- Row 3: ຮ່າງກາຍສົມບູນ, ປະກັນສຸຂະພາບ, ພະຍາດປະຈໍາຕົວ -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>ຮ່າງກາຍສົມບູນ <span style="color: red;">*</span></label>
+        <input type="text" class="memberBodyComplete required-field" value="${member ? member.bodyComplete || '' : ''}" list="bodyCompleteList" data-field-name="ຮ່າງກາຍສົມບູນ">
+      </div>
+      <div class="form-group">
+        <label>ປະກັນສຸຂະພາບ <span style="color: red;">*</span></label>
+        <input type="text" class="memberInsurance required-field" value="${member ? member.insurance || '' : ''}" list="insuranceList" data-field-name="ປະກັນສຸຂະພາບ">
+      </div>
+    <div class="form-group">
+  <label>ພະຍາດປະຈໍາຕົວ <span style="color: red;">*</span></label>
+  
+  <!-- กล่องแสดง Tags -->
+  <div class="disease-tags-container" 
+       id="diseaseTagsContainer${counter}" 
+       style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; min-height: 40px; padding: 10px; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px;">
+    <div style="width: 100%; text-align: center; color: #999; font-size: 13px;" class="empty-placeholder">
+      ຍັງບໍ່ມີພະຍາດ - ກະລຸນາເລືອກຫຼືພິມດ້ານລຸ່ມ
+    </div>
+  </div>
+  
+  <!-- Input สำหรับเลือก/พิมพ์ -->
+  <div style="position: relative;">
+    <input type="text" 
+           class="memberDiseaseInput" 
+           id="diseaseInput${counter}"
+           list="diseaseList" 
+           placeholder="🔍 ຄລິກເພື່ອເລືອກ ຫຼື ພິມເອງ..."
+           style="width: 100%; padding: 12px 40px 12px 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; transition: all 0.3s;"
+           onkeydown="handleDiseaseInput(event, ${counter})"
+           onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102,126,234,0.1)';"
+           onblur="this.style.borderColor='#e0e0e0'; this.style.boxShadow='none';">
+    
+    <!-- ปุ่ม Add -->
+    <button type="button" 
+            onclick="manualAddDisease(${counter})"
+            style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); padding: 8px 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.3s;"
+            onmouseover="this.style.transform='translateY(-50%) scale(1.05)'"
+            onmouseout="this.style.transform='translateY(-50%) scale(1)'">
+      ➕ ເພີ່ມ
+    </button>
+  </div>
+  
+  <small style="display: block; color: #666; font-size: 12px; margin-top: 5px; line-height: 1.5;">
+    💡 <strong>ວິທີໃຊ້:</strong><br>
+    • ຄລິກໃສ່ຊ່ອງເພື່ອເບິ່ງລາຍການພະຍາດ<br>
+    • ເລືອກຈາກລາຍການ ຫຼື ພິມເອງ<br>
+    • ກົດ Enter ຫຼື ກົດປຸ່ມ "➕ ເພີ່ມ"<br>
+    • ສາມາດເພີ່ມໄດ້ຫຼາຍພະຍາດ
+  </small>
+  
+  <!-- Hidden textarea เก็บค่าจริง -->
+  <textarea class="memberDisease required-field" 
+            id="diseaseHidden${counter}"
+            rows="1" 
+            style="display: none;"
+            data-field-name="ພະຍາດປະຈໍາຕົວ">${member ? member.disease || '' : ''}</textarea>
+</div>
+    </div>
+
+    <!-- Row 4: ລະດັບການສຶກສາ, ສາສະໜາ, ສະຖານະພາບຄອບຄົວ -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>ລະດັບການສຶກສາ <span style="color: red;">*</span></label>
+        <input type="text" class="memberEducation required-field" value="${member ? member.education || '' : ''}" list="educationList" data-field-name="ລະດັບການສຶກສາ">
+      </div>
+      <div class="form-group">
+        <label>ສາສະໜາ <span style="color: red;">*</span></label>
+        <input type="text" class="memberReligion required-field" value="${member ? member.religion || '' : ''}" list="religionList" data-field-name="ສາສະໜາ">
+      </div>
+      <div class="form-group">
+        <label>ສະຖານະພາບຄອບຄົວ <span style="color: red;">*</span></label>
+        <input type="text" class="memberMaritalStatus required-field" value="${member ? member.maritalStatus || '' : ''}" list="maritalStatusList" data-field-name="ສະຖານະພາບຄອບຄົວ">
+      </div>
+    </div>
+
+    <!-- Row 5: ມີໜ້າໃນສໍາມະໂນຄົວ, ມີໜ້າຢູ່ຕົວຈິງ, ເບີໂທຕິດຕໍ່ -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>ມີໜ້າໃນສໍາມະໂນຄົວ <span style="color: red;">*</span></label>
+        <input type="text" class="memberInRegistry required-field" value="${member ? member.inRegistry || '' : ''}" list="inRegistryList" data-field-name="ມີໜ້າໃນສໍາມະໂນຄົວ">
+      </div>
+      <div class="form-group">
+        <label>ມີໜ້າຢູ່ຕົວຈິງ <span style="color: red;">*</span></label>
+        <input type="text" class="memberActualResident required-field" value="${member ? member.actualResident || '' : ''}" list="actualResidentList" data-field-name="ມີໜ້າຢູ່ຕົວຈິງ">
+      </div>
+  <div class="form-group">
+        <label>ເບີໂທຕິດຕໍ່</label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span style="padding:12px; background:#f0f0f0; border-radius:8px; font-weight:600; white-space:nowrap;">85620</span>
+          <input type="text" class="memberPhone" maxlength="8" inputmode="numeric" value="${member ? extractPhoneDigits(member.phone) : ''}" placeholder="8 ຫຼັກ" style="flex:1; padding:12px 15px; border:2px solid #e0e0e0; border-radius:8px; font-size:16px;" oninput="this.value=this.value.replace(/\D/g,'').slice(0,8);">
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+   function populateDataLists() {
+  if (!optionsData) return;
+  
+  const datalists = {
+    genderList: optionsData.A,
+    occupationList: optionsData.B,
+    insuranceList: optionsData.C,
+    educationList: optionsData.D,
+    maritalStatusList: optionsData.E,
+    diseaseList: optionsData.F,
+    ethnicityList: optionsData.G,
+    relationshipList: optionsData.H,
+    religionList: optionsData.J,
+    bodyCompleteList: optionsData.L,
+    actualResidentList: optionsData.U,
+    inRegistryList: optionsData.V
+  };
+  
+  Object.keys(datalists).forEach(listId => {
+    const datalist = document.getElementById(listId);
+    if (datalist && datalists[listId]) {
+      datalist.innerHTML = '';
+      datalists[listId].forEach(option => {
+        const optionEl = document.createElement('option');
+        optionEl.value = option;
+        datalist.appendChild(optionEl);
+      });
+    }
+  });
+  
+  // เพิ่มบรรทัดนี้
+  addRegistryChangeListeners();
+  updateFamilyCounters();
+}
+
+
+
+    // ===================================
+    // SAVE HOUSEHOLD
+    // ===================================
+  // แทนที่ส่วน Event Listener ของ householdForm ทั้งหมด
+
+// ✅ ปัญหา 3: ตรวจสอบฟอร์มให้ครบถ้วน
+function validateAllFormFields() {
+  const errors = [];
+  
+  // ตรวจหัวหน้าครอบครัว
+  const householdName = document.getElementById('householdName');
+  if (!householdName.value.trim()) {
+    errors.push({ field: 'householdName', message: 'ຊື່ຫົວໜ້າຄອບຄົວ ບໍ່ກົນຣຸນາກັນກໍ່' });
+  }
+  
+  // ตรวจสมาชิก
+  const memberForms = document.querySelectorAll('#membersContainer .member-section');
+  memberForms.forEach((form, index) => {
+    const memberErrors = validateMemberForm(form);
+    errors.push(...memberErrors);
+  });
+  
+  // ❌ ถ้ามี error
+  if (errors.length > 0) {
+    // Highlight ช่องที่ผิด
+    errors.forEach(error => {
+      const field = document.getElementById(error.field);
+      if (field) {
+        field.classList.add('invalid');
+      }
+    });
+    
+    // แสดง Popup
+    showValidationPopup(errors, 0);
+    return false;
+  }
+  
+  return true;
+}
+
+    document.getElementById('householdForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  
+  // ✅ ตรวจสอบฟอร์มก่อน
+  if (!validateAllFormFields()) {
+    return;
+  }
+  
+  
+  console.log('=== Form Submit Started ===');
+  
+  // รวบรวมข้อมูลหัวหน้าครอบครัว
+  const householdData = {
+    householdCode: document.getElementById('householdCode').value,
+    name: document.getElementById('householdName').value,
+   photo: getPhotoData('householdPhotoPreview'),
+    phone: buildFullPhone(document.getElementById('householdPhone').value),
+    houseNumber: document.getElementById('houseNumber').value,
+    roofCount: document.getElementById('roofCount').value,
+    householdCount: document.getElementById('householdCount').value,
+    familyCount: document.getElementById('familyCount').value,
+    registryBookCount: document.getElementById('registryBookCount').value,
+    registryNumber: document.getElementById('registryNumber').value,
+    familyMemberCount: document.getElementById('familyMemberCount').value,
+    pageCount: document.getElementById('pageCount').value,
+    unit: document.getElementById('unit').value,
+    rentalLocation: document.getElementById('rentalLocation').value,
+    monthlyIncome: document.getElementById('monthlyIncome').value || '0',
+    housePosition: document.getElementById('housePosition').value,
+    village: document.getElementById('village').value,
+    district: document.getElementById('district').value,
+    province: document.getElementById('province').value,
+    villageParticipation: document.getElementById('villageParticipation').value,
+    userCode: currentUser ? currentUser.code : '',
+    userName: currentUser ? currentUser.name : '',
+    members: []
+  };
+  
+  console.log('Household data collected:', householdData);
+  
+  // รวบรวมข้อมูลสมาชิก
+  const memberForms = document.querySelectorAll('#membersContainer .member-section');
+  console.log('Found member forms:', memberForms.length);
+  
+  memberForms.forEach((form, index) => {
+    const counterId = form.id.split('-')[1];
+    console.log('Processing member form:', counterId);
+    
+  const member = {
+  memberCode: form.querySelector('.memberCode') ? form.querySelector('.memberCode').value : '',
+  name: form.querySelector('.memberName') ? form.querySelector('.memberName').value : '',
+  photo: getPhotoData(`memberPhotoPreview${counterId}`), // จะได้ URL เดียวกันถ้าเป็นหัวหน้าครอบครัว
+      gender: form.querySelector('.memberGender') ? form.querySelector('.memberGender').value : '',
+      birthDate: `${form.querySelector('.birthDay') ? form.querySelector('.birthDay').value : ''}/${form.querySelector('.birthMonth') ? form.querySelector('.birthMonth').value : ''}/${form.querySelector('.birthYear') ? form.querySelector('.birthYear').value : ''}`,
+      relationship: form.querySelector('.memberRelationship') ? form.querySelector('.memberRelationship').value : '',
+      occupation: form.querySelector('.memberOccupation') ? form.querySelector('.memberOccupation').value : '',
+      ethnicity: form.querySelector('.memberEthnicity') ? form.querySelector('.memberEthnicity').value : '',
+      bodyComplete: form.querySelector('.memberBodyComplete') ? form.querySelector('.memberBodyComplete').value : '',
+      insurance: form.querySelector('.memberInsurance') ? form.querySelector('.memberInsurance').value : '',
+      disease: form.querySelector('.memberDisease') ? form.querySelector('.memberDisease').value : '',
+      education: form.querySelector('.memberEducation') ? form.querySelector('.memberEducation').value : '',
+      religion: form.querySelector('.memberReligion') ? form.querySelector('.memberReligion').value : '',
+      maritalStatus: form.querySelector('.memberMaritalStatus') ? form.querySelector('.memberMaritalStatus').value : '',
+    inRegistry: form.querySelector('.memberInRegistry') ? form.querySelector('.memberInRegistry').value : '',
+      actualResident: form.querySelector('.memberActualResident') ? form.querySelector('.memberActualResident').value : '',
+      phone: form.querySelector('.memberPhone') ? buildFullPhone(form.querySelector('.memberPhone').value) : '',
+      village: householdData.village,
+      district: householdData.district,
+      province: householdData.province,
+      unit: householdData.unit,
+      housePosition: householdData.housePosition
+    };
+    
+ console.log('Member data:', member);
+    householdData.members.push(member);
+  });
+  
+  // ✅ ใหม่: จัดเรียงสมาชิกใหม่ก่อนบันทึก ให้ຫົວໜ້າຄອບຄົວຢູ່ລໍາດັບທໍາອິດສະເໝີ
+  householdData.members = sortMembersByRelationship(householdData.members);
+  
+  console.log('Final household data:', householdData);
+  showLoading();
+  
+  // บันทึกข้อมูล
+  if (householdData.householdCode) {
+    console.log('Updating existing household...');
+    google.script.run
+      .withSuccessHandler(handleSaveSuccess)
+      .withFailureHandler(handleSaveFailure)
+      .updateHousehold(householdData, villageSheetId);
+  } else {
+    console.log('Saving new household...');
+    google.script.run
+      .withSuccessHandler(handleSaveSuccess)
+      .withFailureHandler(handleSaveFailure)
+      .saveHousehold(householdData, villageSheetId);
+  }
+  
+function handleSaveSuccess(result) {
+    console.log('Save success:', result);
+    
+    if (result.success) {
+      // ✅ ໃຊ້ຂໍ້ມູນທີ່ເຊີບເວີສົ່ງກັບມາ (ມີ memberCode ທີ່ຖືກຕ້ອງ) ແທນຂໍ້ມູນຈາກຟອร์ม
+      const finalHouseholdData = result.household || householdData;
+      
+      if (result.householdCode) {
+        finalHouseholdData.householdCode = result.householdCode;
+      }
+      
+      const existingIndex = householdsData.findIndex(h => h.householdCode === finalHouseholdData.householdCode);
+      if (existingIndex >= 0) {
+        householdsData[existingIndex] = finalHouseholdData;
+      } else {
+        householdsData.push(finalHouseholdData);
+      }
+      
+      saveToIndexedDB('households', finalHouseholdData);
+      
+      hideLoading();
+      showToast(result.message, 'success');
+      closeHouseholdForm();
+      loadPopulationData();
+    } else {
+      hideLoading();
+      showToast(result.message, 'error');
+    }
+  }
+  
