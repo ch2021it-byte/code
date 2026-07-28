@@ -1,0 +1,1553 @@
+// ===================================
+// Google Apps Script Backend - FIXED v2
+// ===================================
+
+const SHEET_IDS = {
+  LOGIN: '11EX6hB9-XDZ2dEQVmYqPzLr7MFGVnmCRtVIsTxb3Z00',
+  OPTIONS: '1G1xpEIcd4xyMBCqlmzd2_IaPY7B8gDv_0I4qgCrBjCw'
+};
+
+const PHOTO_FOLDER_ID = '18ZTL-DldvkI7UNSDBWQlg6DneHz9a3tf';
+
+const SHEET_NAMES = {
+  USER: 'ປະຫວັດ ອສບ',
+  VILLAGE: 'village',
+  HOUSEHOLD: 'ຫົວໜ້າຄອບຄົວ',
+  MEMBER: 'ສະມາຊິກຄອບຄົວ',
+  MOBILE: 'ປະຊາກອນເຄື່ອນທີ່',
+  LAND: 'ຂໍ້ມູນທີ່ດິນ',
+  VEHICLE: 'ຂໍ້ມູນຍານພະຫະນະ',
+  OPTIONS: 'ຕົວເລືອກ'
+};
+
+// ===================================
+// Serve HTML
+// ===================================
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('ລະບົບຂໍ້ມູນປະຊາກອນ')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ===================================
+// Upload Photo
+// ===================================
+function uploadPhoto(photoData, fileName) {
+  try {
+    // ຖ້າເປັນ URL ຢູ່ແລ້ວ (ຮູບທີ່ມີຢູ່) ໃຫ້ສົ່ງຄືນຄ່າກັບໄປເລີຍ
+    if (!photoData) {
+      return '';
+    }
+    
+    if (photoData.startsWith('https://drive.google.com')) {
+      Logger.log('Photo already uploaded, reusing URL: ' + photoData);
+      return photoData; // ໃຊ້ URL ເດີມ ບໍ່ອັບໂຫລດຊ້ຳ
+    }
+    
+    if (!photoData.startsWith('data:image')) {
+      return '';
+    }
+    
+    const base64Data = photoData.split(',')[1];
+    const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), 'image/png', fileName);
+    const folder = DriveApp.getFolderById(PHOTO_FOLDER_ID);
+    
+    // ກວດສອບວ່າມີໄຟລ໌ຊື່ນີ້ຢູ່ແລ້ວຫຼືບໍ່
+    const existingFiles = folder.getFilesByName(fileName);
+    if (existingFiles.hasNext()) {
+      const existingFile = existingFiles.next();
+      Logger.log('File exists, reusing URL: ' + existingFile.getUrl());
+      return existingFile.getUrl(); // ໃຊ້ URL ເດີມ
+    }
+    
+    // ອັບໂຫລດໃໝ່
+    const file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    Logger.log('New file uploaded: ' + file.getUrl());
+    return file.getUrl();
+    
+  } catch (error) {
+    Logger.log('Error uploading photo: ' + error.message);
+    return photoData;
+  }
+}
+
+function getLoginData() {
+  try {
+    Logger.log('=== Starting getLoginData ===');
+    const startTime = new Date().getTime();
+    
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'loginData_v5';
+    const cachedData = cache.get(cacheKey);
+    
+    if (cachedData) {
+      Logger.log('✅ Using cached login data (instant load)');
+      const endTime = new Date().getTime();
+      Logger.log('Time taken: ' + (endTime - startTime) + ' ms');
+      return JSON.parse(cachedData);
+    }
+    
+    Logger.log('📥 Fetching fresh data from sheet...');
+    Logger.log('Using LOGIN Sheet ID: ' + SHEET_IDS.LOGIN);
+    
+    const ss = SpreadsheetApp.openById(SHEET_IDS.LOGIN);
+    
+    // ===== ✅ ພາກທີ 1: ດຶງລາຍຊື່ ແຂວງ/ເມືອງ/ບ້ານ ຈາກຕາຕະລາງ "village" (ຕົວຈິງ 48 ບ້ານ) =====
+    const villageSheet = ss.getSheetByName(SHEET_NAMES.VILLAGE);
+    if (!villageSheet) {
+      throw new Error('Sheet not found: ' + SHEET_NAMES.VILLAGE);
+    }
+    
+    const villageLastRow = villageSheet.getLastRow();
+    const provinces = new Set();
+    const districts = {};
+    const villages = {};
+    
+    if (villageLastRow >= 2) {
+      // ອ່ານຖັນ B-D (village, district, province) ຕາມທີ່ validateLogin ໃຊ້
+      const villageData = villageSheet.getRange(2, 2, villageLastRow - 1, 3).getValues(); // B,C,D
+      
+      villageData.forEach(function(row) {
+        const village = row[0] ? String(row[0]).trim() : '';
+        const district = row[1] ? String(row[1]).trim() : '';
+        const province = row[2] ? String(row[2]).trim() : '';
+        
+        if (!village || !district || !province) {
+          return;
+        }
+        
+        provinces.add(province);
+        
+        if (!districts[province]) {
+          districts[province] = new Set();
+        }
+        districts[province].add(district);
+        
+        const key = province + '|' + district;
+        if (!villages[key]) {
+          villages[key] = new Set();
+        }
+        villages[key].add(village);
+      });
+    }
+    
+    Logger.log('✅ Villages loaded from master "village" sheet: ' + villageLastRow + ' rows');
+    
+    // ===== ພາກທີ 2: ດຶງຂໍ້ມູນຜູ້ໃຊ້ (ອສບ) ຈາກຕາຕະລາງ "ປະຫວັດ ອສບ" ຄືເດີມ ສຳລັບ login step ຕໍ່ໄປ =====
+    const sheet = ss.getSheetByName(SHEET_NAMES.USER);
+    
+    if (!sheet) {
+      throw new Error('Sheet not found: ' + SHEET_NAMES.USER);
+    }
+    
+    const lastRow = sheet.getLastRow();
+    Logger.log('Last row: ' + lastRow);
+    
+    const users = [];
+    
+    if (lastRow >= 2) {
+      const data = sheet.getRange(2, 1, lastRow - 1, 20).getValues();
+      Logger.log('User data retrieved: ' + data.length + ' rows');
+      
+      data.forEach(function(row) {
+        const code = row[0] ? String(row[0]).trim() : '';
+        const name = row[1] ? String(row[1]).trim() : '';
+        const phone = row[8] ? String(row[8]).trim() : '';
+        const village = row[4] ? String(row[4]).trim() : '';
+        const district = row[18] ? String(row[18]).trim() : '';
+        const province = row[19] ? String(row[19]).trim() : '';
+        
+        if (!code || !name || !village || !district || !province) {
+          return;
+        }
+        
+        users.push({
+          code: code,
+          name: name,
+          phone: phone,
+          village: village,
+          district: district,
+          province: province
+        });
+      });
+    }
+    
+    const result = {
+      provinces: Array.from(provinces).sort(),
+      districts: {},
+      villages: {},
+      users: users
+    };
+    
+    Object.keys(districts).forEach(function(province) {
+      result.districts[province] = Array.from(districts[province]).sort();
+    });
+    
+    Object.keys(villages).forEach(function(key) {
+      result.villages[key] = Array.from(villages[key]).sort();
+    });
+    
+    const endTime = new Date().getTime();
+    Logger.log('✅ Login data loaded successfully');
+    Logger.log('Provinces: ' + result.provinces.length);
+    Logger.log('Users: ' + result.users.length);
+    Logger.log('Time taken: ' + (endTime - startTime) + ' ms');
+    
+    try {
+      const jsonString = JSON.stringify(result);
+      const maxSize = 100000;
+      
+      if (jsonString.length < maxSize) {
+        cache.put(cacheKey, jsonString, 600);
+        Logger.log('✅ Login data cached for 10 minutes');
+      } else {
+        Logger.log('⚠️ Data too large for cache: ' + jsonString.length + ' bytes');
+      }
+    } catch (e) {
+      Logger.log('⚠️ Cache error: ' + e.message);
+    }
+    
+    return result;
+    
+  } catch (error) {
+    Logger.log('❌ ERROR in getLoginData: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+    throw new Error('Error loading login data: ' + error.message);
+  }
+}
+
+// ===================================
+// Validate Login & Get Village Sheet ID
+// ===================================
+function validateLogin(loginData) {
+  try {
+    Logger.log('=== Validating Login ===');
+    Logger.log('Input: ' + JSON.stringify(loginData));
+    
+    const ss = SpreadsheetApp.openById(SHEET_IDS.LOGIN);
+    Logger.log('LOGIN sheet opened');
+    
+    const villageSheet = ss.getSheetByName(SHEET_NAMES.VILLAGE);
+    Logger.log('Village sheet: ' + (villageSheet ? 'found' : 'NOT FOUND'));
+    
+    if (!villageSheet) {
+      return {
+        success: false,
+        message: 'Village sheet not found in LOGIN'
+      };
+    }
+    
+    const villageData = villageSheet.getDataRange().getValues();
+    Logger.log('Village data rows: ' + villageData.length);
+    
+    const inputVillage = String(loginData.village).trim();
+    const inputDistrict = String(loginData.district).trim();
+    const inputProvince = String(loginData.province).trim();
+    
+    Logger.log('Looking for: V=' + inputVillage + ', D=' + inputDistrict + ', P=' + inputProvince);
+    
+    // Search in village sheet
+    // Column B = village (index 1)
+    // Column C = district (index 2)
+    // Column D = province (index 3)
+    // Column E = Sheet ID (index 4)
+    
+    for (let i = 1; i < villageData.length; i++) {
+      const row = villageData[i];
+      
+      const rowVillage = row[1] ? String(row[1]).trim() : '';
+      const rowDistrict = row[2] ? String(row[2]).trim() : '';
+      const rowProvince = row[3] ? String(row[3]).trim() : '';
+      const sheetId = row[4] ? String(row[4]).trim() : '';
+      
+      Logger.log('Row ' + i + ': V=' + rowVillage + ', D=' + rowDistrict + ', P=' + rowProvince + ', ID=' + sheetId);
+      
+      if (rowVillage === inputVillage && rowDistrict === inputDistrict && rowProvince === inputProvince) {
+        Logger.log('✅ MATCH FOUND! Sheet ID: ' + sheetId);
+        
+        return {
+          success: true,
+          villageSheetId: sheetId,
+          village: inputVillage,
+          district: inputDistrict,
+          province: inputProvince
+        };
+      }
+    }
+    
+    Logger.log('❌ No match found');
+    return {
+      success: false,
+      message: 'Village not found in village sheet'
+    };
+    
+  } catch (error) {
+    Logger.log('ERROR in validateLogin: ' + error.message);
+    Logger.log('Stack: ' + error.stack);
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Get Options Data
+// ===================================
+function getOptionsData() {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.OPTIONS);
+    const sheet = ss.getSheetByName(SHEET_NAMES.OPTIONS);
+    const data = sheet.getDataRange().getValues();
+    
+    const options = {};
+    const headers = data[0];
+    
+    for (let col = 0; col < headers.length; col++) {
+      const columnData = [];
+      for (let row = 1; row < data.length; row++) {
+        if (data[row][col]) {
+          columnData.push(data[row][col]);
+        }
+      }
+      options[String.fromCharCode(65 + col)] = columnData;
+    }
+    
+    return options;
+  } catch (error) {
+    throw new Error('Error loading options: ' + error.message);
+  }
+}
+// ===================================
+// Helper: Format Birth Date (ແກ້ໄຂບັນຫາ Google Sheets ປ່ຽນຂໍ້ຄວາມວັນທີເປັນ Date ອັດຕະໂນມັດ)
+// ===================================
+function formatBirthDate(value) {
+  if (!value) return '';
+  
+  if (value instanceof Date) {
+    const day = value.getDate();
+    const month = value.getMonth() + 1;
+    const year = value.getFullYear();
+    return day + '/' + month + '/' + year;
+  }
+  
+  return String(value).trim();
+}
+// ===================================
+// Get Household Data
+// ===================================
+function getHouseholdData(villageSheetId) {
+  try {
+    Logger.log('=== Getting household data ===');
+    Logger.log('Village Sheet ID: ' + villageSheetId);
+    
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (!householdSheet || !memberSheet) {
+      Logger.log('Sheets not found');
+      return [];
+    }
+    
+    const householdLastRow = householdSheet.getLastRow();
+    const memberLastRow = memberSheet.getLastRow();
+    
+    if (householdLastRow < 2) {
+      return [];
+    }
+    
+  const householdData = householdSheet.getRange(1, 1, householdLastRow, 22).getValues();
+    let memberData = [[]];
+    if (memberLastRow >= 2) {
+      memberData = memberSheet.getRange(1, 1, memberLastRow, 23).getValues();
+    }
+    
+    const households = [];
+    
+    for (let i = 1; i < householdData.length; i++) {
+      const row = householdData[i];
+      const householdCode = row[0] ? String(row[0]).trim() : '';
+      
+      if (!householdCode) {
+        continue;
+      }
+      
+      const members = [];
+      if (memberData.length > 1) {
+        for (let j = 1; j < memberData.length; j++) {
+          const memberHouseholdCode = memberData[j][0] ? String(memberData[j][0]).trim() : '';
+          
+          if (memberHouseholdCode === householdCode) {
+            members.push({
+              householdCode: String(memberData[j][0] || ''),
+              memberCode: String(memberData[j][1] || ''),
+              name: String(memberData[j][2] || ''),
+              photo: String(memberData[j][3] || ''),
+              gender: String(memberData[j][4] || ''),
+             birthDate: formatBirthDate(memberData[j][5]),
+              inRegistry: String(memberData[j][6] || ''),
+              bodyComplete: String(memberData[j][7] || ''),
+              relationship: String(memberData[j][8] || ''),
+              ethnicity: String(memberData[j][9] || ''),
+              occupation: String(memberData[j][10] || ''),
+              disease: String(memberData[j][11] || ''),
+              insurance: String(memberData[j][12] || ''),
+              phone: String(memberData[j][13] || ''),
+              education: String(memberData[j][14] || ''),
+              religion: String(memberData[j][15] || ''),
+              maritalStatus: String(memberData[j][16] || ''),
+              actualResident: String(memberData[j][17] || ''),
+              village: String(memberData[j][18] || ''),
+              district: String(memberData[j][19] || ''),
+              province: String(memberData[j][20] || ''),
+              unit: String(memberData[j][21] || ''),
+              housePosition: String(memberData[j][22] || '')
+            });
+          }
+        }
+      }
+      
+     households.push({
+  householdCode: String(row[0] || ''),
+  name: String(row[1] || ''),
+  photo: String(row[2] || ''),
+  phone: String(row[3] || ''),
+  houseNumber: String(row[4] || ''),
+  roofCount: String(row[5] || ''),
+  householdCount: String(row[6] || ''),
+  familyCount: String(row[7] || ''),
+  registryBookCount: String(row[8] || ''),
+  registryNumber: String(row[9] || ''),
+  familyMemberCount: String(row[10] || ''),
+  pageCount: String(row[11] || ''),
+  unit: String(row[12] || ''),
+  rentalLocation: String(row[13] || ''),
+  monthlyIncome: String(row[14] || ''),
+  housePosition: String(row[15] || ''),
+  village: String(row[16] || ''),
+  district: String(row[17] || ''),
+  province: String(row[18] || ''),
+  userCode: String(row[19] || ''),
+  userName: String(row[20] || ''),
+  villageParticipation: String(row[21] || ''), // ເພີ່ມແຖວນີ້
+  members: members
+});
+    }
+    
+    Logger.log('Households loaded: ' + households.length);
+    return households;
+    
+  } catch (error) {
+    Logger.log('ERROR in getHouseholdData: ' + error.message);
+    return [];
+  }
+}
+
+// ===================================
+// Save Household
+// ===================================
+function saveHousehold(householdData, villageSheetId) {
+  try {
+    Logger.log('Saving household to: ' + villageSheetId);
+    
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (!householdSheet || !memberSheet) {
+      throw new Error('Sheets not found');
+    }
+    
+    if (!householdData.householdCode) {
+      householdData.householdCode = 'Data-' + generateCode(13);
+    }
+    
+    let householdPhotoUrl = householdData.photo || '';
+    if (householdData.photo && householdData.photo.startsWith('data:image')) {
+      const photoFileName = 'household_' + householdData.householdCode + '_' + new Date().getTime() + '.png';
+      householdPhotoUrl = uploadPhoto(householdData.photo, photoFileName);
+    }
+    
+   const householdRow = [
+  householdData.householdCode,
+  householdData.name,
+  householdPhotoUrl,
+  householdData.phone || '',
+  householdData.houseNumber || '',
+  householdData.roofCount || '',
+  householdData.householdCount || '',
+  householdData.familyCount || '',
+  householdData.registryBookCount || '',
+  householdData.registryNumber || '',
+  householdData.familyMemberCount || '',
+  householdData.pageCount || '',
+  householdData.unit || '',
+  householdData.rentalLocation || '',
+  householdData.monthlyIncome || '',
+  householdData.housePosition || '',
+  householdData.village || '',
+  householdData.district || '',
+  householdData.province || '',
+  householdData.userCode || '',
+  householdData.userName || '',
+  householdData.villageParticipation || '' // ເພີ່ມແຖວນີ້
+];
+    
+    householdSheet.appendRow(householdRow);
+    
+    if (householdData.members && householdData.members.length > 0) {
+      householdData.members.forEach(function(member) {
+        if (!member.memberCode) {
+          member.memberCode = 'Data-' + generateCode(13);
+        }
+        
+        let memberPhotoUrl = member.photo || '';
+        if (member.photo && member.photo.startsWith('data:image')) {
+          const photoFileName = 'member_' + member.memberCode + '_' + new Date().getTime() + '.png';
+          memberPhotoUrl = uploadPhoto(member.photo, photoFileName);
+        }
+        
+        const memberRow = [
+          householdData.householdCode,
+          member.memberCode,
+          member.name || '',
+          memberPhotoUrl,
+          member.gender || '',
+          member.birthDate || '',
+          member.inRegistry || '',
+          member.bodyComplete || '',
+          member.relationship || '',
+          member.ethnicity || '',
+          member.occupation || '',
+          member.disease || '',
+          member.insurance || '',
+          member.phone || '',
+          member.education || '',
+          member.religion || '',
+          member.maritalStatus || '',
+          member.actualResident || '',
+          householdData.village || '',
+          householdData.district || '',
+          householdData.province || '',
+          householdData.unit || '',
+          householdData.housePosition || ''
+        ];
+        
+        memberSheet.appendRow(memberRow);
+      });
+    }
+    
+  return {
+      success: true,
+      householdCode: householdData.householdCode,
+      household: householdData,
+      message: 'Saved successfully'
+    };
+  } catch (error) {
+    Logger.log('ERROR in saveHousehold: ' + error.message);
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+function updateHousehold(householdData, villageSheetId) {
+  const lock = LockService.getScriptLock();
+  
+  try {
+    lock.waitLock(30000);
+  } catch (lockError) {
+    return {
+      success: false,
+      message: 'ລະບົບກຳລັງບັນທຶກຂໍ້ມູນຄົນອື່ນຢູ່ ກະລຸນາລໍຖ້າ 10 ວິນາທີແລ້ວກົດບັນທຶກໃໝ່'
+    };
+  }
+  
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (!householdSheet || !memberSheet) {
+      throw new Error('Sheets not found');
+    }
+    
+    let householdPhotoUrl = householdData.photo || '';
+    if (householdData.photo && householdData.photo.startsWith('data:image')) {
+      const photoFileName = 'household_' + householdData.householdCode + '_' + new Date().getTime() + '.png';
+      householdPhotoUrl = uploadPhoto(householdData.photo, photoFileName);
+    }
+    
+    const householdValues = householdSheet.getDataRange().getValues();
+    for (let i = 1; i < householdValues.length; i++) {
+      if (householdValues[i][0] === householdData.householdCode) {
+       householdSheet.getRange(i + 1, 1, 1, 22).setValues([[
+  householdData.householdCode,
+  householdData.name,
+  householdPhotoUrl,
+  householdData.phone || '',
+  householdData.houseNumber || '',
+  householdData.roofCount || '',
+  householdData.householdCount || '',
+  householdData.familyCount || '',
+  householdData.registryBookCount || '',
+  householdData.registryNumber || '',
+  householdData.familyMemberCount || '',
+  householdData.pageCount || '',
+  householdData.unit || '',
+  householdData.rentalLocation || '',
+  householdData.monthlyIncome || '',
+  householdData.housePosition || '',
+  householdData.village || '',
+  householdData.district || '',
+  householdData.province || '',
+  householdData.userCode || '',
+  householdData.userName || '',
+  householdData.villageParticipation || ''
+]]);
+        break;
+      }
+    }
+    
+    const memberValues = memberSheet.getDataRange().getValues();
+    for (let i = memberValues.length - 1; i >= 1; i--) {
+      if (memberValues[i][0] === householdData.householdCode) {
+        memberSheet.deleteRow(i + 1);
+      }
+    }
+    
+    if (householdData.members && householdData.members.length > 0) {
+      householdData.members.forEach(function(member) {
+        if (!member.memberCode) {
+          member.memberCode = 'Data-' + generateCode(13);
+        }
+        
+        let memberPhotoUrl = member.photo || '';
+        if (member.photo && member.photo.startsWith('data:image')) {
+          const photoFileName = 'member_' + member.memberCode + '_' + new Date().getTime() + '.png';
+          memberPhotoUrl = uploadPhoto(member.photo, photoFileName);
+        }
+        
+        const memberRow = [
+          householdData.householdCode,
+          member.memberCode,
+          member.name || '',
+          memberPhotoUrl,
+          member.gender || '',
+          member.birthDate || '',
+          member.inRegistry || '',
+          member.bodyComplete || '',
+          member.relationship || '',
+          member.ethnicity || '',
+          member.occupation || '',
+          member.disease || '',
+          member.insurance || '',
+          member.phone || '',
+          member.education || '',
+          member.religion || '',
+          member.maritalStatus || '',
+          member.actualResident || '',
+          householdData.village || '',
+          householdData.district || '',
+          householdData.province || '',
+          householdData.unit || '',
+          householdData.housePosition || ''
+        ];
+        
+        memberSheet.appendRow(memberRow);
+      });
+    }
+    
+ return {
+      success: true,
+      household: householdData,
+      message: 'Updated successfully'
+    };
+  } catch (error) {
+    Logger.log('ERROR in updateHousehold: ' + error.message);
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ===================================
+// Delete Member
+// ===================================
+function deleteMember(memberCode, reason, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    const values = memberSheet.getDataRange().getValues();
+    
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][1] === memberCode) {
+        const photoUrl = values[i][3];
+        
+        if (reason === 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ' || reason === 'ເສຍຊີວິດ') {
+          deletePhotoFromDrive(photoUrl);
+        }
+        
+        memberSheet.deleteRow(i + 1);
+        logDeletion('member', memberCode, reason, villageSheetId);
+        
+        return {
+          success: true,
+          message: 'Deleted successfully'
+        };
+      }
+    }
+    
+    return {
+      success: false,
+      message: 'Not found'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Delete Household
+// ===================================
+function deleteHousehold(householdCode, reason, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (reason === 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ') {
+      const householdValues = householdSheet.getDataRange().getValues();
+      for (let i = 1; i < householdValues.length; i++) {
+        if (householdValues[i][0] === householdCode) {
+          const photoUrl = householdValues[i][2];
+          deletePhotoFromDrive(photoUrl);
+          break;
+        }
+      }
+      
+      const memberValues = memberSheet.getDataRange().getValues();
+      for (let i = 1; i < memberValues.length; i++) {
+        if (memberValues[i][0] === householdCode) {
+          const photoUrl = memberValues[i][3];
+          deletePhotoFromDrive(photoUrl);
+        }
+      }
+    }
+    
+    const householdValues = householdSheet.getDataRange().getValues();
+    for (let i = householdValues.length - 1; i >= 1; i--) {
+      if (householdValues[i][0] === householdCode) {
+        householdSheet.deleteRow(i + 1);
+        break;
+      }
+    }
+    
+    const memberValues = memberSheet.getDataRange().getValues();
+    for (let i = memberValues.length - 1; i >= 1; i--) {
+      if (memberValues[i][0] === householdCode) {
+        memberSheet.deleteRow(i + 1);
+      }
+    }
+    
+    logDeletion('household', householdCode, reason, villageSheetId);
+    
+    return {
+      success: true,
+      message: 'Deleted successfully'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Helper Functions
+// ===================================
+function generateCode(length) {
+  let code = '';
+  for (let i = 0; i < length; i++) {
+    code += Math.floor(Math.random() * 10);
+  }
+  return code;
+}
+
+function deletePhotoFromDrive(photoUrl) {
+  try {
+    if (!photoUrl || !photoUrl.includes('drive.google.com')) {
+      return;
+    }
+    
+    const match = photoUrl.match(/[-\w]{25,}/);
+    if (!match) {
+      return;
+    }
+    
+    const fileId = match[0];
+    const file = DriveApp.getFileById(fileId);
+    
+    if (file) {
+      file.setTrashed(true);
+    }
+    
+  } catch (error) {
+    Logger.log('Error deleting photo: ' + error.message);
+  }
+}
+
+function logDeletion(type, code, reason, villageSheetId) {
+  try {
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    let logSheet = ss.getSheetByName('ປະຫວັດການລົບ');
+    
+    if (!logSheet) {
+      logSheet = ss.insertSheet('ປະຫວັດການລົບ');
+      logSheet.appendRow(['ວັນທີ', 'ປະເພດ', 'ລະຫັດ', 'ເຫດຜົນ', 'ຜູ້ລົບ']);
+    }
+    
+    logSheet.appendRow([
+      new Date(),
+      type,
+      code,
+      reason,
+      Session.getActiveUser().getEmail()
+    ]);
+  } catch (error) {
+    Logger.log('Error logging deletion: ' + error.message);
+  }
+}
+function searchHouseholds(searchQuery, searchField, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    const memberSheet = ss.getSheetByName(SHEET_NAMES.MEMBER);
+    
+    if (!householdSheet) {
+      return [];
+    }
+    
+    const householdData = householdSheet.getDataRange().getValues();
+    const memberData = memberSheet ? memberSheet.getDataRange().getValues() : [];
+    const results = [];
+    const addedHouseholds = new Set(); // ປ້ອງກັນຊ້ຳ
+    
+    const searchLower = searchQuery.toLowerCase();
+    
+    // ຄົ້ນຫາຈາກຫົວໜ້າຄອບຄົວ
+    for (let i = 1; i < householdData.length; i++) {
+      const row = householdData[i];
+      let match = false;
+      
+      if (searchField === 'name') {
+        match = row[1] && String(row[1]).toLowerCase().includes(searchLower);
+      } else if (searchField === 'phone') {
+        match = row[3] && String(row[3]).includes(searchQuery);
+      } else if (searchField === 'householdCode') {
+        match = row[0] && String(row[0]).includes(searchQuery);
+      } else if (searchField === 'houseNumber') {
+        match = row[4] && String(row[4]).toLowerCase().includes(searchLower);
+      } else {
+        // ຄົ້ນຫາທຸກຟິລດ໌
+        match = (row[0] && String(row[0]).toLowerCase().includes(searchLower)) ||
+                (row[1] && String(row[1]).toLowerCase().includes(searchLower)) ||
+                (row[3] && String(row[3]).includes(searchQuery)) ||
+                (row[4] && String(row[4]).toLowerCase().includes(searchLower));
+      }
+      
+      if (match) {
+        const householdCode = String(row[0]);
+        if (!addedHouseholds.has(householdCode)) {
+          results.push({
+            householdCode: householdCode,
+            name: String(row[1] || ''),
+            photo: String(row[2] || ''),
+            phone: String(row[3] || ''),
+            houseNumber: String(row[4] || ''),
+            roofCount: String(row[5] || ''),
+            householdCount: String(row[6] || ''),
+            familyCount: String(row[7] || ''),
+            registryBookCount: String(row[8] || ''),
+            registryNumber: String(row[9] || ''),
+            familyMemberCount: String(row[10] || ''),
+            pageCount: String(row[11] || ''),
+            unit: String(row[12] || ''),
+            rentalLocation: String(row[13] || ''),
+            monthlyIncome: String(row[14] || ''),
+            housePosition: String(row[15] || ''),
+            village: String(row[16] || ''),
+            district: String(row[17] || ''),
+            province: String(row[18] || ''),
+            userCode: String(row[19] || ''),
+            userName: String(row[20] || '')
+          });
+          addedHouseholds.add(householdCode);
+        }
+      }
+    }
+    
+    // ຄົ້ນຫາຈາກສະມາຊິກ
+    if (memberData.length > 1) {
+      for (let i = 1; i < memberData.length; i++) {
+        const row = memberData[i];
+        const householdCode = String(row[0]);
+        
+        if (addedHouseholds.has(householdCode)) {
+          continue; // ຖ້າພົບແລ້ວຂ້າມ
+        }
+        
+        let match = false;
+        
+        if (searchField === 'name') {
+          match = row[2] && String(row[2]).toLowerCase().includes(searchLower);
+        } else if (searchField === 'phone') {
+          match = row[13] && String(row[13]).includes(searchQuery);
+        } else {
+          // ຄົ້ນຫາທຸກຟິລດ໌ຂອງສະມາຊິກ
+          match = (row[2] && String(row[2]).toLowerCase().includes(searchLower)) ||
+                  (row[13] && String(row[13]).includes(searchQuery));
+        }
+        
+        if (match) {
+          // ດຶງຂໍ້ມູນຄອບຄົວຂອງສະມາຊິກຄົນນີ້
+          const householdRow = householdData.find(h => String(h[0]) === householdCode);
+          if (householdRow) {
+            results.push({
+              householdCode: householdCode,
+              name: String(householdRow[1] || ''),
+              photo: String(householdRow[2] || ''),
+              phone: String(householdRow[3] || ''),
+              houseNumber: String(householdRow[4] || ''),
+              roofCount: String(householdRow[5] || ''),
+              householdCount: String(householdRow[6] || ''),
+              familyCount: String(householdRow[7] || ''),
+              registryBookCount: String(householdRow[8] || ''),
+              registryNumber: String(householdRow[9] || ''),
+              familyMemberCount: String(householdRow[10] || ''),
+              pageCount: String(householdRow[11] || ''),
+              unit: String(householdRow[12] || ''),
+              rentalLocation: String(householdRow[13] || ''),
+              monthlyIncome: String(householdRow[14] || ''),
+              housePosition: String(householdRow[15] || ''),
+              village: String(householdRow[16] || ''),
+              district: String(householdRow[17] || ''),
+              province: String(householdRow[18] || ''),
+              userCode: String(householdRow[19] || ''),
+              userName: String(householdRow[20] || '')
+            });
+            addedHouseholds.add(householdCode);
+          }
+        }
+      }
+    }
+    
+    Logger.log('Search found: ' + results.length + ' households');
+    return results;
+    
+  } catch (error) {
+    Logger.log('ERROR in searchHouseholds: ' + error.message);
+    return [];
+  }
+}
+
+// ===================================
+// MOBILE POPULATION - NEW FUNCTIONS
+// ===================================
+
+const SHEET_NAMES_MOBILE = {
+  MOBILE: 'ປະຊາກອນເຄື່ອນທີ່'
+};
+
+// ===================================
+// Get Mobile Population Data
+// ===================================
+function getMobileData(villageSheetId) {
+  try {
+    Logger.log('=== Getting mobile population data ===');
+    Logger.log('Village Sheet ID: ' + villageSheetId);
+    
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    
+    if (!mobileSheet) {
+      Logger.log('Mobile sheet not found');
+      return [];
+    }
+    
+    const lastRow = mobileSheet.getLastRow();
+    if (lastRow < 2) {
+      return [];
+    }
+    
+    const mobileData = mobileSheet.getRange(1, 1, lastRow, 28).getValues(); // A-AB (28 columns)
+    const mobiles = [];
+    
+    for (let i = 1; i < mobileData.length; i++) {
+      const row = mobileData[i];
+      const mobileCode = row[0] ? String(row[0]).trim() : '';
+      
+      if (!mobileCode) {
+        continue;
+      }
+      
+      // Parse rental periods (Column Z-AA)
+      const rentalPeriods = parseRentalPeriods(row[25], row[26]); // Z, AA
+      
+      mobiles.push({
+        mobileCode: String(row[0] || ''),           // A - NUMBER
+        householdCode: String(row[1] || ''),        // B - ລະຫັດຫ້ອງແຖວ
+        province: String(row[2] || ''),             // C - ແຂວງປະຈຸບັນ
+        district: String(row[3] || ''),             // D - ເມືອງປະຈຸບັນ
+        village: String(row[4] || ''),              // E - ບ້ານຢູ່ປະຈຸບັນ
+        unit: String(row[5] || ''),                 // F - ໜ່ວຍູ່ປະຈຸບັນ
+        position: String(row[6] || ''),             // G - ຕໍາແໜ່ງບ່ອນພັກ
+        roomNumber: String(row[7] || ''),           // H - ຫ້ອງເບີທີ
+        roomCount: String(row[8] || ''),            // I - ຈໍານວນຫ້ອງມີຄົນຢູ່
+        name: String(row[9] || ''),                 // J - ຊື່ ແລະ ນາມສະກຸນ
+        birthDate: String(row[10] || ''),           // K - ວັນເດືອນປີເກີດ
+        gender: String(row[11] || ''),              // L - ເພດ
+        nationality: String(row[12] || ''),         // M - ສັນຊາດ
+        ethnicity: String(row[13] || ''),           // N - ຊົນເຜົ່າ
+        religion: String(row[14] || ''),            // O - ສາສະໜາ
+        education: String(row[15] || ''),           // P - ລະດັບການສຶກສາ
+        relationship: String(row[16] || ''),        // Q - ສາຍພົວພັນຄອບຄົວ
+        maritalStatus: String(row[17] || ''),       // R - ສະຖານະພາບຄອບຄົວ
+        phone: String(row[18] || ''),               // S - ເບີໂທຜູ້ກ່ຽວ
+        occupation: String(row[19] || ''),          // T - ອາຊີບ
+        workplace: String(row[20] || ''),           // U - ລະບຸບ່ອນເຮັດວຽກ
+        purpose: String(row[21] || ''),             // V - ຈຸດປະສົງໃນການພັກເຊົ່າ
+        photo: String(row[22] || ''),               // W - ຮູບປະຈໍາຕົວ
+        hasPermit: String(row[23] || ''),           // X - ປື້ມອະນຸຍາດພັກເຊົ່າຊົ່ວຄາວ
+        permitNumber: String(row[23] || '').includes('ມີ') && row[23].includes(':') ? 
+                     row[23].split(':')[1].trim() : '',
+        firstArrival: String(row[24] || ''),        // Y - ວັນທີມາພັກເຊົ່າຄັ້ງທໍາອິດ
+        rentalPeriods: rentalPeriods,               // Z-AA parsed
+        ownerName: String(row[27] || ''),           // AB - ຊື່ເຈົ້າຂອງຫ້ອງແຖວ
+        rentalType: row[1] ? 'ພັກເຊົາຄົງທີ່' : 'ພັກເຊົາເຄື່ອນທີ່' // ເບິ່ງວ່າມີ householdCode ຫຼືບໍ່
+      });
+    }
+    
+    Logger.log('Mobiles loaded: ' + mobiles.length);
+    return mobiles;
+    
+  } catch (error) {
+    Logger.log('ERROR in getMobileData: ' + error.message);
+    return [];
+  }
+}
+
+// ===================================
+// Parse Rental Periods (Z-AA)
+// ===================================
+function parseRentalPeriods(renewalData, endDateData) {
+  const periods = [];
+  
+  if (!renewalData || !endDateData) {
+    return periods;
+  }
+  
+  // Parse format: "ຄັ້ງທີ 1: 01/01/2025 (30 ວັນ) | ຄັ້ງທີ 2: 01/02/2025 (60 ວັນ)"
+  const renewalStr = String(renewalData);
+  const endDateStr = String(endDateData);
+  
+  const renewalParts = renewalStr.split('|');
+  const endDateParts = endDateStr.split('|');
+  
+  for (let i = 0; i < renewalParts.length; i++) {
+    const renewal = renewalParts[i].trim();
+    const endDate = endDateParts[i] ? endDateParts[i].trim() : '';
+    
+    // Extract date and days
+    const dateMatch = renewal.match(/(\d{2}\/\d{2}\/\d{4})/);
+    const daysMatch = renewal.match(/\((\d+)\s*[^\)]*\)/);
+    
+    if (dateMatch) {
+      periods.push({
+        periodNumber: i + 1,
+        renewalDate: dateMatch[1],
+        days: daysMatch ? parseInt(daysMatch[1]) : 0,
+        endDate: endDate
+      });
+    }
+  }
+  
+  return periods;
+}
+
+// ===================================
+// Save Mobile Population
+// ===================================
+function saveMobile(mobileData, villageSheetId) {
+  try {
+    Logger.log('Saving mobile to: ' + villageSheetId);
+    
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    
+    if (!mobileSheet) {
+      throw new Error('Mobile sheet not found');
+    }
+    
+    if (!mobileData.mobileCode) {
+      mobileData.mobileCode = 'Mobile-' + generateCode(13);
+    }
+    
+    // Upload photo if needed
+    let photoUrl = mobileData.photo || '';
+    if (mobileData.photo && mobileData.photo.startsWith('data:image')) {
+      const photoFileName = 'mobile_' + mobileData.mobileCode + '_' + new Date().getTime() + '.png';
+      photoUrl = uploadPhoto(mobileData.photo, photoFileName);
+    }
+    
+    // Format permit
+    let permitData = mobileData.hasPermit || 'ບໍ່ມີ';
+    if (mobileData.hasPermit === 'ມີ' && mobileData.permitNumber) {
+      permitData = 'ມີ: ' + mobileData.permitNumber;
+    }
+    
+    // Format rental periods
+    const rentalPeriodsStr = formatRentalPeriods(mobileData.rentalPeriods);
+    const endDatesStr = formatEndDates(mobileData.rentalPeriods);
+    
+    const mobileRow = [
+      mobileData.mobileCode,           // A
+      mobileData.householdCode || '',  // B
+      mobileData.province || '',       // C
+      mobileData.district || '',       // D
+      mobileData.village || '',        // E
+      mobileData.unit || '',           // F
+      mobileData.position || '',       // G
+      mobileData.roomNumber || '',     // H
+      mobileData.roomCount || '',      // I
+      mobileData.name || '',           // J
+      mobileData.birthDate || '',      // K
+      mobileData.gender || '',         // L
+      mobileData.nationality || '',    // M
+      mobileData.ethnicity || '',      // N
+      mobileData.religion || '',       // O
+      mobileData.education || '',      // P
+      mobileData.relationship || '',   // Q
+      mobileData.maritalStatus || '',  // R
+      mobileData.phone || '',          // S
+      mobileData.occupation || '',     // T
+      mobileData.workplace || '',      // U
+      mobileData.purpose || '',        // V
+      photoUrl,                        // W
+      permitData,                      // X
+      mobileData.firstArrival || '',   // Y
+      rentalPeriodsStr,                // Z
+      endDatesStr,                     // AA
+      mobileData.ownerName || ''       // AB
+    ];
+    
+    mobileSheet.appendRow(mobileRow);
+    
+    return {
+      success: true,
+      mobileCode: mobileData.mobileCode,
+      message: 'Saved successfully'
+    };
+  } catch (error) {
+    Logger.log('ERROR in saveMobile: ' + error.message);
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Update Mobile Population
+// ===================================
+function updateMobile(mobileData, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    
+    if (!mobileSheet) {
+      throw new Error('Mobile sheet not found');
+    }
+    
+    // Upload photo if needed
+    let photoUrl = mobileData.photo || '';
+    if (mobileData.photo && mobileData.photo.startsWith('data:image')) {
+      const photoFileName = 'mobile_' + mobileData.mobileCode + '_' + new Date().getTime() + '.png';
+      photoUrl = uploadPhoto(mobileData.photo, photoFileName);
+    }
+    
+    // Format permit
+    let permitData = mobileData.hasPermit || 'ບໍ່ມີ';
+    if (mobileData.hasPermit === 'ມີ' && mobileData.permitNumber) {
+      permitData = 'ມີ: ' + mobileData.permitNumber;
+    }
+    
+    // Format rental periods
+    const rentalPeriodsStr = formatRentalPeriods(mobileData.rentalPeriods);
+    const endDatesStr = formatEndDates(mobileData.rentalPeriods);
+    
+    const values = mobileSheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] === mobileData.mobileCode) {
+        mobileSheet.getRange(i + 1, 1, 1, 28).setValues([[
+          mobileData.mobileCode,
+          mobileData.householdCode || '',
+          mobileData.province || '',
+          mobileData.district || '',
+          mobileData.village || '',
+          mobileData.unit || '',
+          mobileData.position || '',
+          mobileData.roomNumber || '',
+          mobileData.roomCount || '',
+          mobileData.name || '',
+          mobileData.birthDate || '',
+          mobileData.gender || '',
+          mobileData.nationality || '',
+          mobileData.ethnicity || '',
+          mobileData.religion || '',
+          mobileData.education || '',
+          mobileData.relationship || '',
+          mobileData.maritalStatus || '',
+          mobileData.phone || '',
+          mobileData.occupation || '',
+          mobileData.workplace || '',
+          mobileData.purpose || '',
+          photoUrl,
+          permitData,
+          mobileData.firstArrival || '',
+          rentalPeriodsStr,
+          endDatesStr,
+          mobileData.ownerName || ''
+        ]]);
+        break;
+      }
+    }
+    
+    return {
+      success: true,
+      message: 'Updated successfully'
+    };
+  } catch (error) {
+    Logger.log('ERROR in updateMobile: ' + error.message);
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Delete Mobile
+// ===================================
+function deleteMobile(mobileCode, reason, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    const values = mobileSheet.getDataRange().getValues();
+    
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] === mobileCode) {
+        const photoUrl = values[i][22]; // Column W
+        
+        if (reason === 'ຂໍ້ມູນບໍ່ຖືກຕ້ອງ') {
+          deletePhotoFromDrive(photoUrl);
+        }
+        
+        mobileSheet.deleteRow(i + 1);
+        logDeletion('mobile', mobileCode, reason, villageSheetId);
+        
+        return {
+          success: true,
+          message: 'Deleted successfully'
+        };
+      }
+    }
+    
+    return {
+      success: false,
+      message: 'Not found'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Error: ' + error.message
+    };
+  }
+}
+
+// ===================================
+// Search Mobile Population
+// ===================================
+function searchMobile(searchQuery, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    
+    if (!mobileSheet) {
+      return [];
+    }
+    
+    const data = mobileSheet.getDataRange().getValues();
+    const results = [];
+    const searchLower = searchQuery.toLowerCase();
+    
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      // Search in: name, phone, room number, owner name
+      const match = (row[9] && String(row[9]).toLowerCase().includes(searchLower)) ||  // J - name
+                    (row[18] && String(row[18]).includes(searchQuery)) ||              // S - phone
+                    (row[7] && String(row[7]).toLowerCase().includes(searchLower)) ||  // H - room number
+                    (row[27] && String(row[27]).toLowerCase().includes(searchLower));  // AB - owner name
+      
+      if (match) {
+        const rentalPeriods = parseRentalPeriods(row[25], row[26]);
+        
+        results.push({
+          mobileCode: String(row[0] || ''),
+          householdCode: String(row[1] || ''),
+          province: String(row[2] || ''),
+          district: String(row[3] || ''),
+          village: String(row[4] || ''),
+          unit: String(row[5] || ''),
+          position: String(row[6] || ''),
+          roomNumber: String(row[7] || ''),
+          roomCount: String(row[8] || ''),
+          name: String(row[9] || ''),
+          birthDate: String(row[10] || ''),
+          gender: String(row[11] || ''),
+          nationality: String(row[12] || ''),
+          ethnicity: String(row[13] || ''),
+          religion: String(row[14] || ''),
+          education: String(row[15] || ''),
+          relationship: String(row[16] || ''),
+          maritalStatus: String(row[17] || ''),
+          phone: String(row[18] || ''),
+          occupation: String(row[19] || ''),
+          workplace: String(row[20] || ''),
+          purpose: String(row[21] || ''),
+          photo: String(row[22] || ''),
+          hasPermit: String(row[23] || ''),
+          firstArrival: String(row[24] || ''),
+          rentalPeriods: rentalPeriods,
+          ownerName: String(row[27] || ''),
+          rentalType: row[1] ? 'ພັກເຊົາຄົງທີ່' : 'ພັກເຊົາເຄື່ອນທີ່'
+        });
+      }
+    }
+    
+    Logger.log('Mobile search found: ' + results.length);
+    return results;
+    
+  } catch (error) {
+    Logger.log('ERROR in searchMobile: ' + error.message);
+    return [];
+  }
+}
+
+// ===================================
+// Helper: Format Rental Periods
+// ===================================
+function formatRentalPeriods(periods) {
+  if (!periods || periods.length === 0) {
+    return '';
+  }
+  
+  const parts = periods.map(function(p) {
+    return 'ຄັ້ງທີ່ ' + p.periodNumber + ': ' + p.renewalDate + ' (' + p.days + ' ວັນ)';
+  });
+  
+  return parts.join(' | ');
+}
+
+// ===================================
+// Helper: Format End Dates
+// ===================================
+function formatEndDates(periods) {
+  if (!periods || periods.length === 0) {
+    return '';
+  }
+  
+  const parts = periods.map(function(p) {
+    return 'ຄັ້ງທີ່ ' + p.periodNumber + ': ' + p.endDate;
+  });
+  
+  return parts.join(' | ');
+}
+
+// ===================================
+// Calculate End Date
+// ===================================
+function calculateEndDate(startDate, days) {
+  try {
+    // Parse dd/mm/yyyy
+    const parts = startDate.split('/');
+    if (parts.length !== 3) {
+      return '';
+    }
+    
+    const day = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1; // JS months are 0-based
+    const year = parseInt(parts[2]);
+    
+    const date = new Date(year, month, day);
+    date.setDate(date.getDate() + parseInt(days));
+    
+    const endDay = String(date.getDate()).padStart(2, '0');
+    const endMonth = String(date.getMonth() + 1).padStart(2, '0');
+    const endYear = date.getFullYear();
+    
+    return endDay + '/' + endMonth + '/' + endYear;
+  } catch (error) {
+    Logger.log('Error calculating end date: ' + error.message);
+    return '';
+  }
+}
+
+
+// ===================================
+// DEBUG: ກວດສອບຂໍ້ມູນເບີໂທໃນຊີດ
+// ===================================
+function testPhoneCheck(inputPhone) {
+  try {
+    const ss = SpreadsheetApp.openById(SHEET_IDS.LOGIN);
+    const sheet = ss.getSheetByName(SHEET_NAMES.USER);
+    const lastRow = sheet.getLastRow();
+    const data = sheet.getRange(2, 1, lastRow - 1, 9).getValues(); // ດຶງຖັນ A ຫາ I
+    
+    const fullPhone = '85620' + inputPhone;
+    const results = [];
+    
+    data.forEach(function(row, idx) {
+      const rawPhone = row[8] ? String(row[8]) : '';   // ຄ່າດິບໆ ຈາກຊີດ
+      const digitsOnly = rawPhone.replace(/\D/g, '');    // ຕັດທຸກຢ່າງທີ່ບໍ່ແມ່ນຕົວເລກອອກ
+      
+      if (digitsOnly === fullPhone || rawPhone.trim() === fullPhone) {
+        results.push({
+          row: idx + 2,
+          code: row[0],
+          name: row[1],
+          rawPhone: rawPhone,
+          digitsOnly: digitsOnly
+        });
+      }
+    });
+    
+    return {
+      searchedFor: fullPhone,
+      totalRows: data.length,
+      matchCount: results.length,
+      matches: results,
+      samplePhones: data.slice(0, 5).map(function(r) { return String(r[8]); })
+    };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// ===================================
+// Update Position Only (ສຳລັບລາກ Marker ແກ້ໄຂຕໍາແໜ່ງ GPS)
+// ===================================
+function updateHouseholdPosition(householdCode, newPosition, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const householdSheet = ss.getSheetByName(SHEET_NAMES.HOUSEHOLD);
+    if (!householdSheet) {
+      throw new Error('Household sheet not found');
+    }
+
+    const values = householdSheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] === householdCode) {
+        householdSheet.getRange(i + 1, 16).setValue(newPosition); // ຖັນ P = housePosition
+        return { success: true, message: 'ບັນທຶກຕໍາແໜ່ງໃໝ່ສຳເລັດ' };
+      }
+    }
+    return { success: false, message: 'ບໍ່ພົບຄອບຄົວນີ້' };
+  } catch (error) {
+    Logger.log('ERROR in updateHouseholdPosition: ' + error.message);
+    return { success: false, message: 'Error: ' + error.message };
+  }
+}
+
+function updateMobilePosition(mobileCode, newPosition, villageSheetId) {
+  try {
+    if (!villageSheetId) {
+      throw new Error('No village sheet ID');
+    }
+    const ss = SpreadsheetApp.openById(villageSheetId);
+    const mobileSheet = ss.getSheetByName(SHEET_NAMES_MOBILE.MOBILE);
+    if (!mobileSheet) {
+      throw new Error('Mobile sheet not found');
+    }
+
+    const values = mobileSheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] === mobileCode) {
+        mobileSheet.getRange(i + 1, 7).setValue(newPosition); // ຖັນ G = position
+        return { success: true, message: 'ບັນທຶກຕໍາແໜ່ງໃໝ່ສຳເລັດ' };
+      }
+    }
+    return { success: false, message: 'ບໍ່ພົບຂໍ້ມູນນີ້' };
+  } catch (error) {
+    Logger.log('ERROR in updateMobilePosition: ' + error.message);
+    return { success: false, message: 'Error: ' + error.message };
+  }
+}
